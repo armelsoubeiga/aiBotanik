@@ -1,0 +1,10 @@
+<svg width="300" height="100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Texte principal -->
+  <text x="55" y="60" font-family="'Poppins', sans-serif" font-size="42" font-weight="600" fill="#4CAF50">
+    <animate attributeName="opacity" values="0;1" dur="1s" fill="freeze"/>🌿
+    <tspan x="95" y="63" fill="#4CAF50" font-weight="700">Botanik</tspan>
+  </text>
+
+  <!-- Feuille décorative repositionnée -->
+  <path d="M90,45 Q110,25 130,45 T170,45" stroke="#8BC34A" fill="none" stroke-width="2"/>
+</svg>
