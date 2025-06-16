@@ -18,16 +18,6 @@ flowchart LR
 ```
 
 ```mermaid
-flowchart TD
-  UserQuery["🧑‍🌾 Question utilisateur"] --> Embedder["🔤 Embedding via Mistral"]
-  Embedder --> Retriever["📂 Recherche dans CSV / base enrichie"]
-  Retriever --> Context["📄 Contexte pertinent"]
-  Context --> PromptTemplate["🧩 Template de prompt"]
-  PromptTemplate --> LLM["🤖 Mistral (LLM)"]
-  LLM --> Response["✅ Réponse générée"]
-```
-
-```mermaid
 flowchart TB
   subgraph RAG Engine
     UserQuery["🧑‍🌾 Question utilisateur"]
