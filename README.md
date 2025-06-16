@@ -27,9 +27,31 @@ flowchart TD
   LLM --> Response["✅ Réponse générée"]
 ```
 
+```mermaid
+flowchart TB
+  subgraph RAG Engine
+    UserQuery["🧑‍🌾 Question utilisateur"]
+    Embedder["🔤 Embedding via Mistral"]
+    Retriever["📂 Recherche dans CSV / base enrichie"]
+    Context["📄 Contexte pertinent"]
+    PromptTemplate["🧩 Prompt Template"]
+    LLM["🤖 Mistral (LLM)"]
+    Response["✅ Réponse générée"]
+
+    UserQuery --> Embedder
+    Embedder --> Retriever
+    Retriever --> Context
+    Context --> PromptTemplate
+    PromptTemplate --> LLM
+    LLM --> Response
+  end
+```
+
+
 ## Structure
 
-botanikai/
+```
+Botanikai/
 ├── logo.svg
 ├── backend/
 │   ├── app.py
@@ -50,7 +72,7 @@ botanikai/
 │   └── vercel.json
 ├── README.md
 └── LICENSE
-
+```
 
 ## Features
 - **Plant-based treatment recommendations**: Get personalized treatment plans based on your symptoms.
