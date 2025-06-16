@@ -1,0 +1,14 @@
+{
+  "name": "botanikai-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "next": "13.4.4",
+    "axios": "^1.4.0"
+  }
+}
