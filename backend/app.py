@@ -41,9 +41,28 @@ class ResponseBody(BaseModel):
 @app.post("/recommend", response_model=ResponseBody)
 async def recommend(body: RequestBody):
     try:
-        result = get_recommendation(body.symptoms, df)
+        # Passer le chemin absolu du CSV pour le monitoring des modifications
+        csv_path = os.path.abspath("data/baseplante.csv")
+        result = get_recommendation(body.symptoms, df, csv_path)
         return result
     except Exception as e:
         # Afficher la trace complète de l'erreur dans la console
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/rebuild-index")
+async def rebuild_index():
+    """
+    Endpoint administrateur pour forcer la reconstruction de l'index vectoriel.
+    Utile après des mises à jour manuelles du CSV ou pour les tests.
+    """
+    from langchain_chains import build_and_save_vectorstore
+    
+    try:
+        csv_path = os.path.abspath("data/baseplante.csv")
+        # Forcer la reconstruction de l'index
+        build_and_save_vectorstore(df, csv_path)
+        return {"status": "success", "message": "Index vectoriel reconstruit avec succès"}
+    except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
