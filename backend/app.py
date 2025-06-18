@@ -11,6 +11,11 @@ import traceback
 import datetime
 import importlib.util
 import codecs
+import secrets
+
+# Modules locaux
+import supabase_client
+import routes
 
 # Charger .env
 load_dotenv()
@@ -27,7 +32,7 @@ app.add_middleware(
     allow_origins=["*"],  # Pour autoriser toutes les origines, à restreindre en prod
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Authorization"],
     expose_headers=["Content-Length"],
     max_age=600,
 )
@@ -398,6 +403,18 @@ async def get_llm_config():
         "has_openai_key": bool(os.getenv("OPENAI_API_KEY")),
         "has_hf_key": bool(os.getenv("HF_API_KEY"))
     }
+
+# Inclure les routes d'authentification et de consultation
+app.include_router(routes.router, prefix="/api")
+
+# Générer une clé secrète si elle n'existe pas
+if not os.getenv("SECRET_KEY"):
+    os.environ["SECRET_KEY"] = secrets.token_urlsafe(32)
+
+# Initialiser le schéma Supabase au démarrage
+@app.on_event("startup")
+async def startup_db_client():
+    supabase_client.init_supabase_schema()
 
 # Point d'entrée pour exécuter le serveur directement avec python app.py
 if __name__ == "__main__":
