@@ -6,6 +6,7 @@ import uuid
 class MessageBase(BaseModel):
     content: str
     sender: Literal["user", "bot"]
+    recommendation: Optional[Dict[str, Any]] = None
     
 class MessageCreate(MessageBase):
     consultation_id: str
@@ -58,3 +59,21 @@ class Consultation(ConsultationBase):
 
 class ConsultationWithMessages(Consultation):
     messages: List[Message] = []
+
+class ConversationMessageCreate(MessageBase):
+    # Pas de consultation_id car c'est pour les conversations unifiées
+    pass
+
+class ConversationWithMessages(BaseModel):
+    id: str
+    title: str
+    user_id: str
+    chat_mode: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+    summary: Optional[str] = None
+    messages: List[Message] = []
+    
+    class Config:
+        from_attributes = True

@@ -306,6 +306,97 @@ class ConversationUnifiedService {
       return null;
     }
   }
+
+  /**
+   * Ajoute un message à une conversation unifiée existante
+   */
+  public async addMessageToConversation(conversationId: string, message: UnifiedMessage): Promise<UnifiedMessage | null> {
+    if (!authService.isAuthenticated()) {
+      console.error("addMessageToConversation: Utilisateur non authentifié");
+      return null;
+    }
+
+    try {
+      const token = authService.getToken();
+      console.log(`addMessageToConversation: Ajout d'un message à la conversation ${conversationId}`);
+      
+      const response = await fetch(`${API_URL}/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          content: message.content,
+          sender: message.sender,
+          recommendation: message.recommendation
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("addMessageToConversation: Erreur lors de l'ajout du message:", response.status, errorText);
+        
+        // Gérer les erreurs spécifiques
+        if (response.status === 401 || response.status === 403) {
+          console.warn("addMessageToConversation: Problème d'authentification détecté");
+          authService.logout();
+          throw new Error("Session expirée. Veuillez vous reconnecter.");
+        }
+        
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
+      }
+
+      const savedMessage = await response.json();
+      console.log("addMessageToConversation: Message ajouté avec succès:", savedMessage);
+      return savedMessage;
+    } catch (error) {
+      console.error("addMessageToConversation: Erreur lors de l'ajout du message:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Supprime une conversation unifiée
+   */
+  public async deleteConversation(conversationId: string): Promise<boolean> {
+    if (!authService.isAuthenticated()) {
+      console.error("deleteConversation: Utilisateur non authentifié");
+      return false;
+    }
+
+    try {
+      const token = authService.getToken();
+      console.log(`deleteConversation: Suppression de la conversation ${conversationId}`);
+      
+      const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("deleteConversation: Erreur lors de la suppression:", response.status, errorText);
+        
+        // Gérer les erreurs spécifiques
+        if (response.status === 401 || response.status === 403) {
+          console.warn("deleteConversation: Problème d'authentification détecté");
+          authService.logout();
+          throw new Error("Session expirée. Veuillez vous reconnecter.");
+        }
+        
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
+      }
+
+      console.log("deleteConversation: Conversation supprimée avec succès");
+      return true;
+    } catch (error) {
+      console.error("deleteConversation: Erreur lors de la suppression:", error);
+      return false;
+    }
+  }
 }
 
 export const conversationUnifiedService = ConversationUnifiedService.getInstance();

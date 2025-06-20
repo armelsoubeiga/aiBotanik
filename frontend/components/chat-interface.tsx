@@ -72,25 +72,24 @@ Comment puis-je vous aider ?`
   // Référence à la consultation actuelle
   const [currentConsultation, setCurrentConsultation] = useState<ServiceConsultation | null>(null);
   const [isHistoricalConsultation, setIsHistoricalConsultation] = useState(false);
-  
-  // Effet pour créer une nouvelle consultation au démarrage si l'utilisateur est authentifié
+    // Effet pour créer une nouvelle consultation au démarrage si l'utilisateur est authentifié
   useEffect(() => {
     let isMounted = true; // Flag pour éviter les mises à jour après démontage
     
     const initializeConsultation = async () => {
-      // Vérifier si l'utilisateur est authentifié, qu'il y a des messages, 
-      // qu'il n'y a pas déjà une consultation active,
-      // et qu'on n'est pas en train de charger une consultation historique
-      if (isAuthenticated && messages.length > 0 && !currentConsultation && !isHistoricalConsultation) {
-        const hasUserMessage = messages.some(m => m.sender === "user");
-        const hasBotMessage = messages.some(m => m.sender === "bot");
-        
-        // Ne créer une nouvelle consultation que si la conversation contient au moins
-        // un message utilisateur et un message bot
-        if (hasUserMessage && hasBotMessage && isMounted) {
-          await createNewConsultation();
-        }
-      }
+      // DÉSACTIVÉ: Ne pas créer automatiquement de consultation pour chaque nouveau chat
+      // Les conversations ne sont sauvegardées que lors d'actions explicites selon la logique métier
+      // 
+      // Cette fonction était responsable de la création automatique d'entrées de consultation
+      // qui interfère avec la logique métier où les messages sont stockés temporairement
+      // et ne sont persistés que lors du bouton +, déconnexion, ou fermeture navigateur
+      
+      console.log(`🔍 Initialisation consultation désactivée pour respecter la logique métier`, {
+        isAuthenticated,
+        messagesLength: messages.length,
+        currentConsultation: currentConsultation?.id,
+        isHistoricalConsultation
+      });
     };
     
     initializeConsultation();
@@ -129,10 +128,146 @@ Comment puis-je vous aider ?`
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('aiBotanikLogout', handleLogoutEvent);
     };
-  }, [isAuthenticated, messages]);
+  }, [isAuthenticated, messages]);  // Effet pour la sauvegarde automatique des nouveaux messages dans les consultations existantes
+  useEffect(() => {
+    // Fonction pour sauvegarder automatiquement les nouveaux messages
+    const autoSaveNewMessages = async () => {
+      console.log(`🔍 Diagnostic sauvegarde automatique:`, {
+        isAuthenticated,
+        userChooseContinueWithoutLogin,
+        currentConsultationId: currentConsultation?.id,
+        isHistoricalConsultation,
+        messagesLength: messages.length
+      });
+      
+      // IMPORTANTE: La sauvegarde automatique ne doit se faire QUE pour les consultations historiques
+      // Les nouvelles conversations utilisent un stockage temporaire et ne sont sauvegardées
+      // que lors d'actions explicites (bouton +, déconnexion, fermeture navigateur)
+      
+      // Conditions pour déclencher la sauvegarde automatique :
+      // 1. Utilisateur authentifié
+      // 2. Pas en mode "continuer sans connexion"
+      // 3. Il s'agit d'une consultation historique (isHistoricalConsultation = true)
+      // 4. Il y a une consultation existante
+      // 5. Il y a des messages
+      // 6. Le dernier message n'est pas un message utilisateur seul (on attend la paire user+bot)
+      if (
+        isAuthenticated && 
+        !userChooseContinueWithoutLogin && 
+        isHistoricalConsultation && // AJOUT: Seulement pour les consultations historiques
+        currentConsultation?.id && 
+        messages.length > 0 &&
+        messages.length >= 2 // Au minimum une paire user+bot
+      ) {
+        const lastMessage = messages[messages.length - 1];
+        
+        // Ne sauvegarder que si le dernier message est du bot (fin d'un échange complet)
+        if (lastMessage.sender === "bot") {
+          console.log(`🔄 Sauvegarde automatique déclenchée - Consultation ${currentConsultation.id} - Message bot reçu`);
+          
+          try {
+            // Identifier les nouveaux messages qui ne sont pas encore sauvegardés
+            const existingMessageIds = new Set(
+              (currentConsultation.messages || [])
+                .filter(m => m.id)
+                .map(m => m.id?.toString())
+            );
+            
+            // Prendre les 2 derniers messages (user + bot)
+            const recentMessages = messages.slice(-2);
+            const messagesToSave = recentMessages
+              .filter(m => !existingMessageIds.has(m.id?.toString()))
+              .map(m => ({
+                content: m.content,
+                sender: m.sender,
+                recommendation: m.recommendation
+              }));
+              if (messagesToSave.length > 0) {
+              console.log(`🔄 Sauvegarde automatique - ${messagesToSave.length} nouveaux messages à sauvegarder`);
+              
+              // Distinguer entre consultation historique (table conversations) et nouvelle consultation (tables consultation/message)
+              if (isHistoricalConsultation && currentConsultation.id) {
+                // CAS 1: Consultation historique chargée depuis la table conversations
+                // Utiliser le service unifié pour ajouter à une conversation existante
+                console.log(`🔄 Sauvegarde automatique - Consultation historique détectée, utilisation du service unifié`);
+                
+                for (const message of messagesToSave) {
+                  try {
+                    console.log(`🔄 Sauvegarde automatique - Ajout du message ${message.sender} à la conversation unifiée ${currentConsultation.id}`);
+                    
+                    const savedMessage = await conversationUnifiedService.addMessageToConversation(
+                      currentConsultation.id, 
+                      {
+                        content: message.content,
+                        sender: message.sender,
+                        recommendation: message.recommendation
+                      }
+                    );
+                    
+                    if (!savedMessage) {
+                      throw new Error("Échec de la sauvegarde du message");
+                    }
+                    
+                    console.log(`✅ Sauvegarde automatique - Message ${message.sender} sauvegardé dans conversation unifiée`);
+                  } catch (error) {
+                    console.error(`❌ Sauvegarde automatique - Erreur lors de la sauvegarde du message ${message.sender}:`, error);
+                  }
+                }
+              } else {
+                // CAS 2: Nouvelle consultation en cours (stockage intermédiaire)
+                // Utiliser le service consultation traditionnel pour le stockage intermédiaire
+                console.log(`🔄 Sauvegarde automatique - Nouvelle consultation détectée, utilisation du stockage intermédiaire`);
+                
+                for (const message of messagesToSave) {
+                  try {
+                    console.log(`🔄 Sauvegarde automatique - Ajout du message ${message.sender} au stockage intermédiaire`);
+                    
+                    // Utiliser consultationService pour sauvegarder dans les tables consultation/message
+                    const savedMessage = await consultationService.addMessage(
+                      currentConsultation.id, 
+                      {
+                        content: message.content,
+                        sender: message.sender,
+                        recommendation: message.recommendation
+                      }
+                    );
+                    
+                    if (!savedMessage) {
+                      throw new Error("Échec de la sauvegarde du message");
+                    }
+                    
+                    console.log(`✅ Sauvegarde automatique - Message ${message.sender} sauvegardé dans stockage intermédiaire`);
+                  } catch (error) {
+                    console.error(`❌ Sauvegarde automatique - Erreur lors de la sauvegarde du message ${message.sender}:`, error);
+                  }
+                }
+              }
+              
+              console.log(`✅ Sauvegarde automatique terminée - ${messagesToSave.length} messages sauvegardés dans la consultation ${currentConsultation.id}`);
+            } else {
+              console.log("🔄 Sauvegarde automatique - Aucun nouveau message à sauvegarder");
+            }
+          } catch (error) {
+            console.error("❌ Sauvegarde automatique - Erreur:", error);
+          }
+        } else {
+          console.log("🔄 Sauvegarde automatique - En attente de la réponse du bot");
+        }
+      }
+    };
+    
+    // Déclencher la sauvegarde avec un petit délai pour s'assurer que l'état est stabilisé
+    const timeoutId = setTimeout(autoSaveNewMessages, 100);
+    
+    return () => clearTimeout(timeoutId);
+  }, [
+    messages.length, // Se déclenche quand le nombre de messages change
+    isAuthenticated, 
+    userChooseContinueWithoutLogin, 
+    currentConsultation?.id
+  ]);
   
   // Fonction spécifique pour sauvegarder la conversation juste avant déconnexion
-  // Cette fonction contourne les problèmes liés à la perte imminente du token d'authentification
   const saveConversationBeforeLogout = async () => {
     if (!isAuthenticated || messages.length < 4) {
       return false;
@@ -649,63 +784,11 @@ Comment puis-je vous aider ?`
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
-    
-    // Traiter la réponse au message
+    setMessages((prev) => [...prev, userMessage])    // Traiter la réponse au message
     await processMessageResponse(currentMessage)
     
-    // Si l'utilisateur est authentifié, sauvegarder la conversation après la réponse
-    // Mais seulement si l'utilisateur n'a pas choisi de continuer sans connexion
-    if (isAuthenticated && !userChooseContinueWithoutLogin) {
-      console.log("Utilisateur authentifié, sauvegarde automatique de la conversation");
-        // Logique pour toute consultation existante (historique ou créée récemment)
-      if (currentConsultation && currentConsultation.id) {
-        console.log(`Ajout de nouveaux messages à la consultation existante ${currentConsultation.id}`);
-        
-        // Identifier les nouveaux messages à ajouter (généralement les 2 derniers messages : user + bot)
-        const existingMessageIds = new Set(
-          (currentConsultation.messages || [])
-            .filter(m => m.id)
-            .map(m => m.id?.toString())
-        );
-        
-        // Obtenir uniquement les 2 derniers messages qui viennent d'être ajoutés
-        const lastMessages = messages.slice(-2);
-        console.log(`Derniers messages ajoutés: ${lastMessages.length}`);
-        
-        if (lastMessages.length > 0) {
-          // Ne garder que les messages qui n'ont pas déjà été sauvegardés
-          const messagesToSave = lastMessages.map(m => ({
-            content: m.content,
-            sender: m.sender,
-            recommendation: m.recommendation
-          }));
-        
-          console.log(`Sauvegarde des ${messagesToSave.length} derniers messages uniquement`);
-          
-          // Ajouter individuellement chaque nouveau message à la consultation historique
-          for (const message of messagesToSave) {
-            try {
-              await consultationService.addMessage(currentConsultation.id, message);
-              console.log(`Message ajouté à la consultation historique: ${message.content.substring(0, 30)}...`);
-            } catch (error) {
-              console.error("Erreur lors de l'ajout d'un message à la consultation historique:", error);
-            }
-          }
-          console.log(`${messagesToSave.length} nouveaux messages ajoutés à la consultation historique`);
-        }
-      } 
-      // Comportement normal pour les nouvelles conversations
-      else {
-        // Sauvegarder la consultation avec le nouveau message et la réponse
-        const saveSuccessful = await saveConversation();
-        
-        // Si nous sommes en train de continuer une consultation existante et que la sauvegarde a réussi
-        if (saveSuccessful && currentConsultation && currentConsultation.id) {
-          console.log("Consultation mise à jour:", currentConsultation.id);
-        }
-      }
-    }
+    // La sauvegarde automatique se fait maintenant via un effet qui surveille les changements de messages
+    // Cela évite les problèmes de synchronisation avec les mises à jour d'état asynchrones
   }
 
   // Fonction pour traiter la réponse à un message sans la logique de sauvegarde
@@ -785,15 +868,13 @@ Comment puis-je vous aider ?`
           content: `J'ai analysé vos symptômes et je vous recommande le remède suivant à base de **${recommendation.plant}**. Retrouvez ci-dessus la fiche détaillée avec préparation et dosage recommandés.`,
           sender: "bot",
           timestamp: new Date(),
-          recommendation,
-        };
+          recommendation,        };
         
         setMessages((prev) => [...prev, botResponse]);
         
-        // Si l'utilisateur est authentifié et n'a pas choisi de continuer sans connexion, sauvegarder automatiquement
-        if (isAuthenticated && !userChooseContinueWithoutLogin) {
-          await saveConversation();
-        }
+        // La sauvegarde automatique est gérée dans handleSendMessage pour éviter les doublons
+        // Plus besoin d'appeler saveConversation ici - la logique de sauvegarde unifiée 
+        // est dans handleSendMessage
       } catch (error) {
         console.error("Erreur lors de l'appel à l'API:", error);
         
@@ -838,8 +919,7 @@ Comment puis-je vous aider ?`
         if (!data.response) {
           console.warn("⚠️ Aucune réponse dans la donnée reçue");
         }
-        
-        const botResponse: Message = {
+          const botResponse: Message = {
           id: (Date.now() + 1).toString(),
           content: data.response || `Merci pour votre question sur : "${messageText}". Je suis là pour discuter de phytothérapie africaine avec vous.`,
           sender: "bot",
@@ -848,10 +928,9 @@ Comment puis-je vous aider ?`
         
         setMessages((prev) => [...prev, botResponse]);
         
-        // Si l'utilisateur est authentifié et n'a pas choisi de continuer sans connexion, sauvegarder automatiquement
-        if (isAuthenticated && !userChooseContinueWithoutLogin) {
-          await saveConversation();
-        }
+        // La sauvegarde automatique est gérée dans handleSendMessage pour éviter les doublons
+        // Plus besoin d'appeler saveConversation ici - la logique de sauvegarde unifiée 
+        // est dans handleSendMessage
       } catch (error) {
         console.error("Erreur lors de l'appel à l'API chat:", error);
         
@@ -922,8 +1001,8 @@ Comment puis-je vous aider ?`
         console.log(`Chargement de la conversation: ${consultationId}`);
         setIsLoading(true);
           try {
-          // Charger uniquement depuis la table conversations unifiée (historique sauvegardé)
-          console.log("Chargement de la conversation historique depuis la table conversations unifiée...");
+          // Charger uniquement depuis la table conversations unifiées (historique sauvegardé)
+          console.log("Chargement de la conversation historique depuis la table conversations unifiées...");
           const unifiedConversation = await conversationUnifiedService.getConversationWithMessages(consultationId);
           
           if (unifiedConversation && unifiedConversation.messages && isMounted) {
@@ -937,15 +1016,25 @@ Comment puis-je vous aider ?`
               timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
               recommendation: msg.recommendation
             }));
-            
-            if (isMounted) {
+              if (isMounted) {
               setMessages(formattedMessages);
               setChatMode(unifiedConversation.chat_mode || "discussion");
               
+              // Définir currentConsultation avec les données de la conversation historique
+              // Cela permet à la sauvegarde automatique de fonctionner correctement
+              setCurrentConsultation({
+                id: consultationId,
+                title: unifiedConversation.title || "Conversation historique",
+                type: unifiedConversation.chat_mode || "discussion",
+                messages: formattedMessages,
+                created_at: unifiedConversation.created_at,
+                updated_at: unifiedConversation.updated_at
+              });
+              
               // Marquer comme conversation historique pour éviter la recréation
               setIsHistoricalConsultation(true);
-              console.log(`Conversation historique ${consultationId} chargée avec succès`);
-            }          } else {
+              console.log(`✅ Conversation historique ${consultationId} chargée avec succès - currentConsultation défini`);
+            }} else {
             // Si la conversation n'existe pas dans l'historique, afficher un message d'erreur
             console.log("Conversation historique non trouvée dans la table unifiée");
             if (isMounted) {
@@ -1028,11 +1117,44 @@ Comment puis-je vous aider ?`
     };
     // Exécuter ce code uniquement au montage initial du composant
   }, []);
-  
-  // Fonction pour créer une nouvelle conversation
+    // Fonction pour créer une nouvelle conversation
   const handleNewConversation = async () => {
-    // Si l'utilisateur est authentifié, qu'il y a des messages ET que c'est une conversation qui mérite d'être sauvegardée
-    // (au moins quatre messages, soit deux échanges complets)
+    // Pour les conversations historiques : ne pas créer de nouvelle consultation, 
+    // juste réinitialiser l'interface pour une nouvelle discussion
+    if (currentConsultation?.id) {
+      console.log(`Fin de la modification de la consultation ${currentConsultation.id}, démarrage d'une nouvelle conversation`);
+      
+      // Les nouveaux messages ont déjà été sauvegardés automatiquement lors de la conversation
+      // Il n'y a donc rien à sauvegarder ici, juste réinitialiser l'interface
+      
+      // Réinitialiser l'interface pour une nouvelle conversation
+      setMessages([]);
+      setInputValue("");
+      setChatMode("discussion");
+      setCurrentConsultation(null); // Libérer la consultation historique
+      setIsHistoricalConsultation(false);
+      
+      // Réinitialiser les autres états
+      setUserChooseContinueWithoutLogin(false);
+      setPendingSaveConversation(false);
+      setPendingMessage("");
+      
+      // Notifier le composant parent
+      if (onConversationChange) {
+        setTimeout(() => {
+          onConversationChange({
+            messages: [],
+            mode: "discussion",
+            consultation: null
+          });
+        }, 100);
+      }
+      
+      console.log("Interface réinitialisée pour une nouvelle conversation");
+      return;
+    }
+    
+    // Pour les nouvelles conversations (non historiques) : sauvegarder si nécessaire avant de réinitialiser
     const hasUserMessage = messages.some(m => m.sender === "user");
     const hasBotMessage = messages.some(m => m.sender === "bot");
     const isValidConversation = isAuthenticated && messages.length >= 4 && hasUserMessage && hasBotMessage;
@@ -1047,85 +1169,9 @@ Comment puis-je vous aider ?`
           console.log(`Conversation sauvegardée avec succès dans la table unifiée, ID: ${conversationId}`);
         } else {
           console.warn("Échec de la sauvegarde unifiée, utilisation de la méthode traditionnelle");
-              // Si nous avons une consultation existante (historique ou créée), mise à jour de celle-ci avec les nouveaux messages
-        if (currentConsultation?.id) {
-          console.log(`Mise à jour de la consultation existante ${currentConsultation.id} avec tous les nouveaux messages`);
-          
-          // Identifier les nouveaux messages ajoutés à cette consultation
-          const existingMessageIds = new Set(
-            (currentConsultation.messages || [])
-              .filter(m => m.id)
-              .map(m => m.id?.toString())
-          );
-          
-          // Trouver seulement les nouveaux messages ajoutés depuis le chargement/création
-          const newMessages = messages.filter(m => !existingMessageIds.has(m.id?.toString()));
-          
-          if (newMessages.length > 0) {
-              console.log(`Ajout de ${newMessages.length} nouveaux messages à la session historique`);
-              
-              // Ajouter chaque nouveau message à la consultation existante
-              for (const message of newMessages) {
-                try {
-                  // S'assurer que tous les champs de recommandation sont présents pour une restauration fidèle
-                  let processedRecommendation = undefined;
-                  if (message.recommendation) {
-                    try {
-                      processedRecommendation = JSON.parse(JSON.stringify(message.recommendation));
-                      // Vérifier et compléter chaque champ individuellement pour éviter les erreurs TypeScript
-                      if (!processedRecommendation.plant) {
-                        processedRecommendation.plant = "Plante non spécifiée";
-                      }
-                      if (!processedRecommendation.dosage) {
-                        processedRecommendation.dosage = "Dosage non spécifié";
-                      }
-                      if (!processedRecommendation.prep) {
-                        processedRecommendation.prep = "Préparation non spécifiée";
-                      }
-                      if (!processedRecommendation.image_url) {
-                        processedRecommendation.image_url = "";
-                      }
-                      if (!processedRecommendation.explanation) {
-                        processedRecommendation.explanation = "";
-                      }
-                      if (!processedRecommendation.contre_indications) {
-                        processedRecommendation.contre_indications = "Aucune contre-indication connue";
-                      }
-                      if (!processedRecommendation.partie_utilisee) {
-                        processedRecommendation.partie_utilisee = "Non spécifié";
-                      }
-                      if (!processedRecommendation.composants) {
-                        processedRecommendation.composants = "Non spécifié";
-                      }
-                      if (!processedRecommendation.nom_local) {
-                        processedRecommendation.nom_local = "";
-                      }
-                    } catch (error) {
-                      console.error("Erreur lors du traitement de la recommandation:", error);
-                    }
-                  }
-                  
-                  await consultationService.addMessage(currentConsultation.id, {
-                    content: message.content,
-                    sender: message.sender,
-                    recommendation: processedRecommendation
-                  });
-                } catch (error) {
-                  console.error("Erreur lors de l'ajout d'un message à la session historique:", error);
-                }
-              }
-              
-              console.log("Session historique mise à jour avec succès");
-            } else {
-              console.log("Aucun nouveau message à ajouter à la session historique");
-            }
-          }
-          // Sinon, créer une nouvelle consultation contenant toute la session
-          else {
-            // Utiliser createNewConsultation qui va créer une entrée complète avec tous les messages
-            await createNewConsultation();
-            console.log("Nouvelle session complète sauvegardée avec succès");
-          }
+          // Créer une nouvelle consultation contenant toute la session
+          await createNewConsultation();
+          console.log("Nouvelle session complète sauvegardée avec succès");
         }
       } catch (error) {
         console.error("Erreur lors de la sauvegarde de la session:", error);
@@ -1253,59 +1299,12 @@ Comment puis-je vous aider ?`
             if (!token) {
               console.log("Déconnexion - Pas de token valide, impossible de sauvegarder");
               return;
-            }
-              // Si nous avons une consultation existante (historique ou créée), mise à jour de celle-ci avec les nouveaux messages
+            }            // Si nous avons une consultation existante (historique modifié), 
+            // les nouveaux messages ont déjà été sauvegardés automatiquement pendant la conversation
             if (currentConsultation?.id) {
-              console.log(`Déconnexion - Mise à jour de la consultation existante ${currentConsultation.id}`);
-              
-              // Identifier tous les nouveaux messages ajoutés depuis la restauration/création de la consultation
-              const existingMessageIds = new Set(
-                (currentConsultation.messages || [])
-                  .filter(m => m.id)
-                  .map(m => m.id?.toString())
-              );
-              
-              // Trouver seulement les nouveaux messages ajoutés depuis le chargement/création
-              const newMessages = messages.filter(m => !existingMessageIds.has(m.id?.toString()));
-              
-              if (newMessages.length > 0) {
-                console.log(`Déconnexion - Ajout de ${newMessages.length} nouveaux messages à la consultation existante`);
-                
-                // Ajouter chaque nouveau message à la consultation existante
-                let success = true;
-                for (const message of newMessages) {
-                  try {
-                    // Utilisation directe de fetch pour éviter les problèmes avec le service
-                    const response = await fetch(`http://localhost:8000/api/consultations/${currentConsultation.id}/messages`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${token}`
-                      },
-                      body: JSON.stringify({
-                        content: message.content,
-                        sender: message.sender,
-                        recommendation: message.recommendation
-                      }),
-                    });
-                    
-                    if (!response.ok) {
-                      console.error("Déconnexion - Échec de l'ajout du message:", await response.text());
-                      success = false;
-                      break;
-                    }
-                  } catch (error) {
-                    console.error("Déconnexion - Erreur lors de l'ajout d'un message:", error);
-                    success = false;
-                    break;
-                  }
-                }
-                  if (success) {
-                  console.log("Déconnexion - Consultation existante mise à jour avec succès");
-                }
-              } else {
-                console.log("Déconnexion - Aucun nouveau message à ajouter à la consultation existante");
-              }
+              console.log(`Déconnexion - Consultation existante ${currentConsultation.id} déjà mise à jour automatiquement - AUCUNE nouvelle sauvegarde`);
+              // Rien à faire : la sauvegarde s'est faite en temps réel lors de l'ajout de chaque message
+              return; // Important : sortir immédiatement pour éviter toute création de doublon
             } 
             // Seulement si nous n'avons aucune consultation existante, créer une nouvelle consultation
             else if (messages.length >= 2) {
@@ -1396,6 +1395,66 @@ Comment puis-je vous aider ?`
     prevAuthenticated.current = isAuthenticated;
     prevPropAuthenticated.current = propIsAuthenticated;
   }, [propIsAuthenticated, isAuthenticated, onConversationChange]);
+
+  // Effet pour sauvegarder automatiquement lors de la navigation (démontage du composant)
+  useEffect(() => {
+    // Fonction de nettoyage appelée lors du démontage du composant (navigation)
+    return () => {
+      // Sauvegarder automatiquement si nous avons une consultation existante avec des nouveaux messages
+      if (currentConsultation?.id && messages.length > 0 && isAuthenticated) {
+        console.log("Navigation détectée - Sauvegarde automatique des derniers messages");
+        
+        // Sauvegarder de manière asynchrone les derniers messages non sauvegardés
+        // Note: Ce sera exécuté de manière asynchrone, les messages seront sauvegardés
+        (async () => {
+          try {
+            // Identifier les nouveaux messages qui pourraient ne pas être sauvegardés
+            const existingMessageIds = new Set(
+              (currentConsultation.messages || [])
+                .filter(m => m.id)
+                .map(m => m.id?.toString())
+            );
+            
+            // Trouver les messages récents qui ne sont pas encore sauvegardés
+            const recentMessages = messages.slice(-2).filter(m => !existingMessageIds.has(m.id?.toString()));
+            
+            if (recentMessages.length > 0) {
+              console.log(`Navigation - Sauvegarde de ${recentMessages.length} messages récents`);
+                // Sauvegarder chaque message récent
+              for (const message of recentMessages) {
+                try {
+                  // Utiliser l'API conversations unifiées au lieu de l'API consultations
+                  console.log(`Navigation - Sauvegarde du message ${message.sender} dans la conversation unifiée ${currentConsultation.id}`);
+                  
+                  const response = await fetch(`http://localhost:8000/api/conversations/${currentConsultation.id}/messages`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${authService.getToken()}`
+                    },
+                    body: JSON.stringify({
+                      content: message.content,
+                      sender: message.sender,
+                      recommendation: message.recommendation
+                    })
+                  });
+                  
+                  if (!response.ok) {
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                  }
+                } catch (error) {
+                  console.error("Navigation - Erreur lors de la sauvegarde d'un message:", error);
+                }
+              }
+              console.log("Navigation - Messages sauvegardés avec succès");
+            }
+          } catch (error) {
+            console.error("Navigation - Erreur lors de la sauvegarde automatique:", error);
+          }
+        })();
+      }
+    };
+  }, [currentConsultation?.id, messages, isAuthenticated]); // Dépendances pour capturer l'état actuel
 
   return (
     <div className="space-y-6">

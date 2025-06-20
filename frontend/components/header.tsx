@@ -13,9 +13,10 @@ import { authService } from "@/services/auth-service"
 interface HeaderProps {
   isAuthenticated: boolean
   onAuthChange: (authenticated: boolean) => void
+  onSettingsChanged?: () => void  // Nouveau callback pour les changements de paramètres
 }
 
-export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
+export function Header({ isAuthenticated, onAuthChange, onSettingsChanged }: HeaderProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [showSignupModal, setShowSignupModal] = useState(false)
@@ -169,13 +170,15 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
 
       {/* Modales */}
       <LoginModal open={showLoginModal} onOpenChange={setShowLoginModal} onLoginSuccess={handleLoginSuccess} />
-      <SignupModal open={showSignupModal} onOpenChange={setShowSignupModal} onSignupSuccess={handleSignupSuccess} />
-      <SettingsModal 
+      <SignupModal open={showSignupModal} onOpenChange={setShowSignupModal} onSignupSuccess={handleSignupSuccess} />      <SettingsModal 
         open={showSettingsModal} 
         onOpenChange={setShowSettingsModal} 
         onSettingsChanged={() => {
-          // Rafraîchir l'état si nécessaire après un changement de paramètres
-          // Par exemple, après la suppression d'une consultation
+          // Notifier le composant parent des changements de paramètres
+          console.log("Paramètres modifiés - notification du composant parent");
+          if (onSettingsChanged) {
+            onSettingsChanged();
+          }
         }} 
       />
     </>

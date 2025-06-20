@@ -400,7 +400,6 @@ export default function Home() {
         )
     }
   }
-
   // Fonction pour gérer la déconnexion depuis l'en-tête
   const handleAuthChange = (authStatus: boolean) => {
     setIsAuthenticated(authStatus);
@@ -425,10 +424,22 @@ export default function Home() {
       loadUserConsultations();
     }
   };
-  
-  return (
+
+  // Fonction pour gérer les changements de paramètres (ex: suppression de consultation)
+  const handleSettingsChanged = () => {
+    console.log("Changements de paramètres détectés - rechargement des consultations");
+    // Recharger les consultations pour refléter les changements (suppressions, etc.)
+    if (isAuthenticated) {
+      loadUserConsultations();
+    }
+  };
+    return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-amber-50">
-      <Header isAuthenticated={isAuthenticated} onAuthChange={handleAuthChange} />
+      <Header 
+        isAuthenticated={isAuthenticated} 
+        onAuthChange={handleAuthChange}
+        onSettingsChanged={handleSettingsChanged}
+      />
 
       <main className="container mx-auto px-4 py-8 max-w-6xl">{renderContent()}</main>
     </div>

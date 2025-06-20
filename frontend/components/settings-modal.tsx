@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Loader2, Settings, Key, History, Trash2, CheckCircle2, AlertCircle } from "lucide-react"
 import { authService } from "@/services/auth-service"
 import { consultationService } from "@/services/consultation-service"
+import { conversationUnifiedService } from "@/services/conversation-unified-service"
 import { 
   Alert,
   AlertTitle,
@@ -78,37 +79,39 @@ export function SettingsModal({ open, onOpenChange, onSettingsChanged }: Setting
       console.error("Erreur lors du chargement des informations utilisateur:", error);
     }
   };
-
-  // Charger les consultations
+  // Charger les consultations (conversations unifiées)
   const loadConsultations = async () => {
     if (!authService.isAuthenticated()) return;
     
     setIsLoadingConsultations(true);
     try {
-      const data = await consultationService.getConsultations();
+      console.log("Chargement des conversations unifiées pour les paramètres...");
+      
+      // Utiliser le service unifié pour charger les conversations
+      const data = await conversationUnifiedService.getConversationHistory();
       
       if (data && Array.isArray(data)) {
         const formattedConsultations = data.map(c => ({
           id: c.id || "",
           title: c.title || "Sans titre",
-          date: c.created_at || c.date || new Date().toISOString(),
-          messagesCount: c.messages_count || (c.messages?.length || 0),
+          date: c.created_at || new Date().toISOString(),
+          messagesCount: c.messages_count || 0,
           summary: c.summary || "Pas de résumé"
         }));
         
+        console.log(`${formattedConsultations.length} conversations chargées dans les paramètres`);
         setConsultations(formattedConsultations);
       } else {
         setConsultations([]);
       }
     } catch (error) {
-      console.error("Erreur lors du chargement des consultations:", error);
+      console.error("Erreur lors du chargement des conversations:", error);
       setConsultations([]);
     } finally {
       setIsLoadingConsultations(false);
     }
   };
-
-  // Supprimer une consultation
+  // Supprimer une consultation (conversation unifiée)
   const deleteConsultation = async (id: string) => {
     if (!authService.isAuthenticated()) return;
     
@@ -117,11 +120,16 @@ export function SettingsModal({ open, onOpenChange, onSettingsChanged }: Setting
     setConsultationDeleteSuccess(false);
     
     try {
-      const success = await consultationService.deleteConsultation(id);
+      console.log(`Suppression de la conversation unifiée ${id}`);
+      
+      // Utiliser le service unifié pour supprimer la conversation
+      const success = await conversationUnifiedService.deleteConversation(id);
       
       if (success) {
         setConsultations(prev => prev.filter(c => c.id !== id));
         setConsultationDeleteSuccess(true);
+        
+        console.log(`Conversation ${id} supprimée avec succès`);
         
         if (onSettingsChanged) {
           onSettingsChanged();
@@ -132,10 +140,10 @@ export function SettingsModal({ open, onOpenChange, onSettingsChanged }: Setting
           setConsultationDeleteSuccess(false);
         }, 3000);
       } else {
-        setConsultationDeleteError("Impossible de supprimer cette consultation.");
+        setConsultationDeleteError("Impossible de supprimer cette conversation.");
       }
     } catch (error) {
-      console.error("Erreur lors de la suppression de la consultation:", error);
+      console.error("Erreur lors de la suppression de la conversation:", error);
       setConsultationDeleteError("Une erreur est survenue lors de la suppression.");
     } finally {
       setIsDeletingConsultation(null);

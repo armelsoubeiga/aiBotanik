@@ -10,7 +10,7 @@ from auth import (
     User, UserCreate, UserLogin, Token, PasswordChange,
     get_password_hash, authenticate_user, create_access_token, get_current_active_user, get_user
 )
-from models import Consultation, ConsultationCreate, ConsultationWithMessages, Message, MessageCreate
+from models import Consultation, ConsultationCreate, ConsultationWithMessages, Message, MessageCreate, MessageBase
 from supabase_client import supabase, supabase_admin, safe_get_user_by_email
 
 router = APIRouter()
@@ -373,6 +373,87 @@ async def add_message(
     
     return message
 
+# Routes pour les conversations unifiées (système unifié)
+@router.post("/conversations/{conversation_id}/messages", response_model=Message)
+async def add_message_to_conversation(
+    conversation_id: str,
+    message_data: MessageBase,  # Utiliser MessageBase au lieu de MessageCreate
+    current_user: Dict[str, Any] = Depends(get_current_active_user)
+):
+    """
+    Ajoute un message à une conversation unifiée (table conversations)
+    """
+    import json
+    
+    print(f"Ajout d'un message à la conversation unifiée {conversation_id}")
+    print(f"Données du message reçues: {message_data.dict()}")
+    
+    # Vérifier que la conversation existe et appartient à l'utilisateur
+    conversation_response = supabase_admin.table("conversations") \
+        .select("*") \
+        .eq("id", conversation_id) \
+        .eq("user_id", current_user["id"]) \
+        .single() \
+        .execute()
+    
+    if not conversation_response.data:
+        raise HTTPException(status_code=404, detail="Conversation non trouvée")
+    
+    # Créer le message avec gestion de la recommandation
+    message_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    # Récupérer la recommandation depuis message_data si elle existe
+    recommendation_data = None
+    if hasattr(message_data, 'recommendation') and message_data.recommendation:
+        recommendation_data = message_data.recommendation
+        print(f"Recommandation trouvée: {recommendation_data}")
+    else:
+        print("Aucune recommandation dans les données du message")      # Créer le message final
+    message = {
+        "id": message_id,
+        "content": message_data.content,
+        "sender": message_data.sender,
+        "timestamp": now,
+        "recommendation": recommendation_data  # Utiliser la recommandation traitée
+    }
+    
+    # Pour les conversations unifiées, les messages sont stockés dans un champ JSON
+    # Il faut récupérer les messages existants et ajouter le nouveau
+    try:
+        existing_messages = conversation_response.data.get("messages", [])
+        print(f"Messages existants dans la conversation: {len(existing_messages)}")
+        
+        # Ajouter le nouveau message à la liste
+        updated_messages = existing_messages + [message]
+          # Mettre à jour la conversation avec la nouvelle liste de messages
+        # Note: Utiliser seulement les colonnes qui existent dans la table
+        update_result = supabase_admin.table("conversations") \
+            .update({
+                "messages": updated_messages,
+                "updated_at": now
+            }) \
+            .eq("id", conversation_id) \
+            .execute()
+        
+        print(f"Message ajouté avec succès à la conversation unifiée: {message_id}")
+        print(f"Conversation maintenant avec {len(updated_messages)} messages")
+        
+    except Exception as e:
+        print(f"Erreur lors de l'ajout du message à la conversation unifiée: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'ajout du message: {str(e)}")
+      # Mettre à jour le résumé si c'est le premier message utilisateur
+    existing_messages_count = len(conversation_response.data.get("messages", []))
+    if message_data.sender == "user" and existing_messages_count == 0:
+        summary = message_data.content[:100] + "..." if len(message_data.content) > 100 else message_data.content
+        supabase_admin.table("conversations") \
+            .update({"summary": summary}) \
+            .eq("id", conversation_id) \
+            .execute()
+        print(f"Résumé de la conversation mis à jour: {summary}")
+    
+    return message
+
 @router.delete("/consultations/{consultation_id}")
 async def delete_consultation(
     consultation_id: str,
@@ -495,3 +576,37 @@ async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_curre
     }
     
     return user_info
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_active_user)
+):
+    """
+    Supprime une conversation unifiée
+    """
+    print(f"Suppression de la conversation unifiée {conversation_id}")
+    
+    # Vérifier que la conversation existe et appartient à l'utilisateur
+    conversation_response = supabase_admin.table("conversations") \
+        .select("*") \
+        .eq("id", conversation_id) \
+        .eq("user_id", current_user["id"]) \
+        .execute()
+    
+    if not conversation_response.data or len(conversation_response.data) == 0:
+        raise HTTPException(status_code=404, detail="Conversation non trouvée")
+    
+    try:
+        # Supprimer la conversation
+        supabase_admin.table("conversations") \
+            .delete() \
+            .eq("id", conversation_id) \
+            .eq("user_id", current_user["id"]) \
+            .execute()
+        
+        print(f"Conversation unifiée {conversation_id} supprimée avec succès")
+        return {"message": "Conversation supprimée avec succès"}
+    except Exception as e:
+        print(f"Erreur lors de la suppression de la conversation {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
