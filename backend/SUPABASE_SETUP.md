@@ -2,9 +2,29 @@
 
 Ce document explique comment configurer Supabase pour prendre en charge les fonctionnalités d'authentification et de stockage des consultations pour aiBotanik.
 
-## Tables à créer dans Supabase
+## Initialisation de Supabase
 
-Connectez-vous à votre tableau de bord Supabase et créez les tables suivantes :
+Pour initialiser la base de données Supabase, suivez ces étapes :
+
+1. Créez un projet sur [Supabase](https://supabase.com/)
+2. Récupérez l'URL, la clé anonyme et la clé service (Service Role Key)
+3. Créez un fichier `.env` dans le dossier `backend` avec les informations suivantes :
+   ```
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_KEY=your-service-key
+   SECRET_KEY=your-jwt-secret-key
+   ```
+4. Exécutez le script d'initialisation :
+   ```
+   python init_supabase.py
+   ```
+
+## Tables dans Supabase
+
+Le script d'initialisation crée automatiquement les tables suivantes :
+
+> Note : Vous pouvez aussi créer ces tables manuellement depuis l'interface SQL de Supabase si vous préférez.
 
 ### 1. Table `users`
 

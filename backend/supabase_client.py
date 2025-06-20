@@ -8,12 +8,14 @@ load_dotenv()
 # Récupérer les variables d'environnement Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Clé de service pour les opérations d'admin
 
-if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    raise ValueError("Les variables d'environnement SUPABASE_URL et SUPABASE_ANON_KEY doivent être définies")
+if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_KEY:
+    raise ValueError("Les variables d'environnement SUPABASE_URL, SUPABASE_ANON_KEY et SUPABASE_KEY doivent être définies")
 
-# Créer le client Supabase
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# Créer les clients Supabase
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)  # Client standard pour les utilisateurs normaux
+supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_KEY)  # Client admin avec privilèges élevés
 
 def init_supabase_schema():
     """
@@ -60,7 +62,7 @@ def init_supabase_schema():
 def safe_get_user_by_email(email):
     """Récupère un utilisateur par email de manière sécurisée"""
     try:
-        response = supabase.table("users").select("*").eq("email", email).execute()
+        response = supabase_admin.table("users").select("*").eq("email", email).execute()
         users = response.data
         return users[0] if users and len(users) > 0 else None
     except Exception as e:
@@ -70,7 +72,7 @@ def safe_get_user_by_email(email):
 def safe_get_user_by_id(user_id):
     """Récupère un utilisateur par ID de manière sécurisée"""
     try:
-        response = supabase.table("users").select("*").eq("id", user_id).execute()
+        response = supabase_admin.table("users").select("*").eq("id", user_id).execute()
         users = response.data
         return users[0] if users and len(users) > 0 else None
     except Exception as e:

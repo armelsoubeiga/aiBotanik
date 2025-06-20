@@ -7,6 +7,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Menu, User, LogOut, Settings, Leaf } from "lucide-react"
 import { LoginModal } from "@/components/login-modal"
 import { SignupModal } from "@/components/signup-modal"
+import { SettingsModal } from "@/components/settings-modal"
+import { authService } from "@/services/auth-service"
 
 interface HeaderProps {
   isAuthenticated: boolean
@@ -17,6 +19,7 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [showSignupModal, setShowSignupModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
 
   const handleLogin = () => {
     setShowLoginModal(true)
@@ -37,7 +40,27 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
   }
 
   const handleLogout = () => {
-    onAuthChange(false)
+    console.log("Déconnexion demandée depuis l'en-tête");
+    
+    // Utiliser le service d'authentification pour se déconnecter
+    // La méthode logout() va émettre un événement aiBotanikLogout
+    // qui sera capturé par ChatInterface pour sauvegarder les données
+    authService.logout();
+    
+    // Après un court délai pour laisser le temps de sauvegarder,
+    // informer le composant parent que l'utilisateur s'est déconnecté
+    setTimeout(() => {
+      console.log("Notification de déconnexion envoyée aux composants parents");
+      onAuthChange(false);
+      
+      // Fermer la modale mobile si ouverte
+      setIsMobileMenuOpen(false);
+    }, 500);
+    
+    // Réinitialiser l'état des modales au cas où
+    setShowLoginModal(false);
+    setShowSignupModal(false);
+    setShowSettingsModal(false);
   }
 
   return (
@@ -67,7 +90,10 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48 bg-white border border-gray-200 shadow-lg">
-                  <DropdownMenuItem className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                  <DropdownMenuItem 
+                    onClick={() => setShowSettingsModal(true)}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                  >
                     <Settings className="h-4 w-4 text-gray-600" />
                     <span className="text-gray-700">Paramètres</span>
                   </DropdownMenuItem>
@@ -108,7 +134,14 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
                 <div className="flex flex-col gap-4 mt-8">
                   {isAuthenticated ? (
                     <>
-                      <Button variant="ghost" className="justify-start">
+                      <Button 
+                        variant="ghost" 
+                        className="justify-start"
+                        onClick={() => {
+                          setIsMobileMenuOpen(false); 
+                          setShowSettingsModal(true);
+                        }}
+                      >
                         <Settings className="h-4 w-4 mr-2" />
                         Paramètres
                       </Button>
@@ -137,6 +170,14 @@ export function Header({ isAuthenticated, onAuthChange }: HeaderProps) {
       {/* Modales */}
       <LoginModal open={showLoginModal} onOpenChange={setShowLoginModal} onLoginSuccess={handleLoginSuccess} />
       <SignupModal open={showSignupModal} onOpenChange={setShowSignupModal} onSignupSuccess={handleSignupSuccess} />
+      <SettingsModal 
+        open={showSettingsModal} 
+        onOpenChange={setShowSettingsModal} 
+        onSettingsChanged={() => {
+          // Rafraîchir l'état si nécessaire après un changement de paramètres
+          // Par exemple, après la suppression d'une consultation
+        }} 
+      />
     </>
   )
 }

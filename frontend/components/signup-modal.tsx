@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Leaf, Eye, EyeOff } from "lucide-react"
+import { authService } from "@/services/auth-service"
 
 interface SignupModalProps {
   open: boolean
@@ -25,7 +26,6 @@ export function SignupModal({ open, onOpenChange, onSignupSuccess }: SignupModal
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -35,13 +35,29 @@ export function SignupModal({ open, onOpenChange, onSignupSuccess }: SignupModal
     }
 
     setIsLoading(true)
-
-    // Simulation d'une inscription
-    setTimeout(() => {
-      setIsLoading(false)
-      onSignupSuccess()
-      setFormData({ name: "", email: "", password: "", confirmPassword: "" })
-    }, 1500)
+    
+    try {
+      // Utiliser le service d'authentification pour s'inscrire
+      const result = await authService.signup({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword
+      });
+      
+      if (result.success) {
+        console.log("Inscription réussie");
+        onSignupSuccess();
+        setFormData({ name: "", email: "", password: "", confirmPassword: "" });
+      } else {
+        console.error("Échec de l'inscription:", result.errorMessage);
+        alert(result.errorMessage || "Échec de l'inscription. Veuillez réessayer.");
+      }
+    } catch (error) {
+      console.error("Erreur lors de l'inscription:", error);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   const handleInputChange = (field: string, value: string) => {

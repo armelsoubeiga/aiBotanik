@@ -21,11 +21,79 @@ interface PlantRecommendationCardProps {
 }
 
 export function PlantRecommendationCard({ recommendation }: PlantRecommendationCardProps) {
+  // Vérifier si la recommandation est valide
+  if (!recommendation) {
+    console.error("Recommendation invalide ou manquante");
+    return renderErrorCard("Les détails de cette recommandation ne sont pas disponibles.");
+  }
+
+  // Vérifier le type de la recommandation
+  if (typeof recommendation !== 'object') {
+    console.error(`Recommendation dans un format invalide: ${typeof recommendation}`);
+    return renderErrorCard(`Format de recommandation non valide: ${typeof recommendation}`);
+  }
+
+  // Vérifier les champs obligatoires minimaux
+  if (!recommendation.plant) {
+    console.error("Recommendation sans nom de plante");
+    return renderErrorCard("Cette recommandation est incomplète (nom de plante manquant).");
+  }
+  
   // Débogage pour voir exactement ce qui est reçu
-  console.log("Recommendation reçue:", recommendation);
+  console.log(`Recommendation reçue pour la plante: ${recommendation.plant}`);
+  
+  // Essayer de traiter la recommandation comme une chaîne JSON si nécessaire
+  let processedRecommendation = recommendation;
+  
+  if (typeof recommendation === 'string') {
+    try {
+      processedRecommendation = JSON.parse(recommendation);
+      console.log("Recommandation convertie de chaîne en objet avec succès");
+    } catch(e) {
+      console.error("Impossible de parser la recommandation depuis la chaîne:", e);
+      return renderErrorCard("Impossible de traiter les détails de cette recommandation.");
+    }
+  }
+  
+  // Assurer que tous les champs requis sont présents
+  const requiredFields: Record<keyof PlantRecommendation, string> = {
+    plant: "Plante non spécifiée",
+    dosage: "Dosage non spécifié",
+    prep: "Préparation non spécifiée",
+    image_url: "",
+    explanation: "",
+    contre_indications: "Aucune contre-indication connue",
+    partie_utilisee: "Non spécifié",
+    composants: "Non spécifié",
+    nom_local: ""
+  };
+  
+  // Compléter les champs manquants pour garantir l'affichage complet
+  for (const field of Object.keys(requiredFields) as Array<keyof PlantRecommendation>) {
+    if (!processedRecommendation[field]) {
+      processedRecommendation[field] = requiredFields[field];
+      console.warn(`Champ '${field}' manquant dans la recommandation, valeur par défaut ajoutée`);
+    }
+  }
   
   // Valider que l'explication existe et normaliser si nécessaire
-  const safeExplanation = recommendation?.explanation || "";
+  const safeExplanation = processedRecommendation.explanation || "";
+  
+  // Fonction utilitaire pour afficher une carte d'erreur
+  function renderErrorCard(message: string) {
+    return (
+      <Card className="border-amber-200 mb-4">
+        <CardHeader>
+          <h3 className="text-lg font-semibold text-amber-700">
+            Erreur d'affichage de la recommandation
+          </h3>
+        </CardHeader>
+        <CardContent>
+          <p className="text-amber-600">{message}</p>
+        </CardContent>
+      </Card>
+    );
+  }
   console.log("Explication complète (longueur):", safeExplanation.length);
   
   // Ajouter des informations de débogage supplémentaires

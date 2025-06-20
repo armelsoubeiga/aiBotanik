@@ -24,7 +24,34 @@ load_dotenv()
 # Assurez-vous que le système peut gérer correctement l'UTF-8
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
-app = FastAPI(title="aiBotanik", description="API de recommandation de phytothérapie")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    # Code à exécuter au démarrage
+    print("Initialisation de l'application...")
+    
+    # Initialiser Supabase
+    try:
+        supabase_client.init_supabase_schema()
+        print("Initialisation Supabase terminée")
+    except Exception as e:
+        print(f"Erreur lors de l'initialisation Supabase: {e}")
+    
+    yield
+    
+    # Code à exécuter à l'arrêt
+    print("Arrêt de l'application...")
+
+app = FastAPI(
+    title="aiBotanik", 
+    description="API de recommandation de phytothérapie",
+    debug=True,  # Activer le mode debug pour des messages d'erreur détaillés
+    openapi_url="/api/openapi.json",  # Déplacer le schéma OpenAPI sous /api pour cohérence
+    docs_url="/api/docs",  # Déplacer Swagger sous /api pour cohérence
+    redoc_url="/api/redoc",  # Déplacer ReDoc sous /api pour cohérence
+    lifespan=lifespan  # Utiliser le nouveau gestionnaire de cycle de vie
+)
 
 # Gestion CORS
 app.add_middleware(
@@ -411,10 +438,7 @@ app.include_router(routes.router, prefix="/api")
 if not os.getenv("SECRET_KEY"):
     os.environ["SECRET_KEY"] = secrets.token_urlsafe(32)
 
-# Initialiser le schéma Supabase au démarrage
-@app.on_event("startup")
-async def startup_db_client():
-    supabase_client.init_supabase_schema()
+# L'initialisation de Supabase se fait maintenant via le gestionnaire de cycle de vie défini plus haut
 
 # Point d'entrée pour exécuter le serveur directement avec python app.py
 if __name__ == "__main__":
@@ -422,3 +446,82 @@ if __name__ == "__main__":
     print("Démarrage du serveur aiBotanik sur http://localhost:8000")
     print("Pour arrêter le serveur, appuyez sur CTRL+C")
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Ajout de gestionnaires d'erreurs
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import logging
+from json import JSONDecodeError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+# Configurer le logger
+logging.basicConfig(level=logging.DEBUG if app.debug else logging.INFO)
+logger = logging.getLogger("aibotanik")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    """
+    Handler personnalisé pour les erreurs de validation des requêtes
+    """
+    logger.error(f"Erreur de validation: {exc}")
+    
+    # Formatter les erreurs de manière plus conviviale
+    error_details = []
+    for error in exc.errors():
+        error_location = " -> ".join(str(loc) for loc in error.get("loc", []))
+        error_details.append({
+            "location": error_location,
+            "message": error.get("msg", "Erreur de validation"),
+            "type": error.get("type", "unknown_error_type")
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Erreur de validation des données de la requête",
+            "errors": error_details
+        }
+    )
+
+@app.exception_handler(JSONDecodeError)
+async def json_decode_exception_handler(request, exc):
+    """
+    Handler personnalisé pour les erreurs de décodage JSON
+    """
+    logger.error(f"Erreur de décodage JSON: {exc}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": "Erreur de décodage JSON",
+            "message": str(exc),
+            "suggestion": "Vérifiez que votre requête contient un JSON valide et bien formatté"
+        }
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    """
+    Handler personnalisé pour les erreurs HTTP
+    """
+    logger.error(f"Erreur HTTP {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request, exc):
+    """
+    Handler pour les exceptions non gérées
+    """
+    logger.error(f"Exception non gérée: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Erreur interne du serveur",
+            "message": str(exc) if app.debug else "Une erreur s'est produite lors du traitement de votre requête"
+        }
+    )

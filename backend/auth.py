@@ -5,7 +5,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from supabase_client import supabase, safe_get_user_by_id, safe_get_user_by_email
+from supabase_client import supabase, supabase_admin, safe_get_user_by_id, safe_get_user_by_email
 import secrets
 import os
 
@@ -38,6 +38,10 @@ class UserCreate(UserBase):
 class UserLogin(BaseModel):
     email: str
     password: str
+    
+class PasswordChange(BaseModel):
+    email: str
+    new_password: str
 
 class User(UserBase):
     id: str
@@ -98,9 +102,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any
     if user is None:
         raise credentials_exception
     return user
-
+    
 async def get_current_active_user(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Vérifie si l'utilisateur est actif"""
+    """Vérifie que l'utilisateur actuel est actif"""
     if current_user.get("is_disabled", False):
-        raise HTTPException(status_code=400, detail="Utilisateur inactif")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Compte désactivé"
+        )
     return current_user
