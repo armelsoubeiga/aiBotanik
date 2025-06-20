@@ -434,6 +434,10 @@ async def get_llm_config():
 # Inclure les routes d'authentification et de consultation
 app.include_router(routes.router, prefix="/api")
 
+# Importer et inclure les routes pour les conversations unifiées
+import conversation_unified_routes
+app.include_router(conversation_unified_routes.router)
+
 # Générer une clé secrète si elle n'existe pas
 if not os.getenv("SECRET_KEY"):
     os.environ["SECRET_KEY"] = secrets.token_urlsafe(32)

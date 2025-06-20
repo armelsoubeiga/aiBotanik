@@ -255,18 +255,27 @@ async def get_consultation(
 ):
     """
     Récupère une consultation spécifique avec ses messages
-    """    # Récupérer la consultation
-    consultation_response = supabase_admin.table("consultations") \
-        .select("*") \
-        .eq("id", consultation_id) \
-        .eq("user_id", current_user["id"]) \
-        .single() \
-        .execute()
-    
-    if not consultation_response.data:
-        raise HTTPException(status_code=404, detail="Consultation non trouvée")
-    
-    consultation = consultation_response.data
+    """
+    try:
+        # Récupérer la consultation
+        consultation_response = supabase_admin.table("consultations") \
+            .select("*") \
+            .eq("id", consultation_id) \
+            .eq("user_id", current_user["id"]) \
+            .execute()
+        
+        # Vérifier si la consultation existe
+        if not consultation_response.data or len(consultation_response.data) == 0:
+            raise HTTPException(status_code=404, detail="Consultation non trouvée")
+        
+        consultation = consultation_response.data[0]  # Prendre le premier résultat
+        
+    except Exception as e:
+        # Si c'est une APIError de Supabase, c'est probablement que la consultation n'existe pas
+        if "no rows returned" in str(e) or "PGRST116" in str(e):
+            raise HTTPException(status_code=404, detail="Consultation non trouvée")
+        # Sinon, c'est une autre erreur
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération de la consultation: {str(e)}")
     
     # Récupérer les messages de la consultation
     messages_response = supabase_admin.table("messages") \

@@ -12,6 +12,9 @@ import { authService } from "@/services/auth-service"
 import { consultationService } from "@/services/consultation-service"
 // Types importés avec des alias pour éviter les conflits
 import type { Message as ServiceMessage, Consultation as ServiceConsultation } from "@/services/consultation-service"
+// Import du service et helper pour les conversations unifiées
+import { conversationUnifiedService } from "@/services/conversation-unified-service"
+import { saveUnifiedConversation } from "@/services/conversation-unified-helper"
 
 interface ChatInterfaceProps {
   onBack?: () => void
@@ -152,6 +155,17 @@ Comment puis-je vous aider ?`
         console.error("saveConversationBeforeLogout: Pas de token disponible");
         return false;
       }
+      
+      // Utiliser la fonction de sauvegarde unifiée pour sauvegarder la conversation
+      const conversationId = await saveUnifiedConversation(messages, chatMode);
+      
+      if (conversationId) {
+        console.log(`saveConversationBeforeLogout: Conversation sauvegardée avec succès dans la table unifiée, ID: ${conversationId}`);
+        return true;
+      }
+      
+      // En cas d'échec de la sauvegarde unifiée, continuer avec la sauvegarde traditionnelle
+      console.log("saveConversationBeforeLogout: Échec de la sauvegarde unifiée, tentative avec l'ancienne méthode");
       
       // Générer un titre basé sur le premier message utilisateur
       const firstUserMessage = messages.find(m => m.sender === "user");
@@ -644,10 +658,9 @@ Comment puis-je vous aider ?`
     // Mais seulement si l'utilisateur n'a pas choisi de continuer sans connexion
     if (isAuthenticated && !userChooseContinueWithoutLogin) {
       console.log("Utilisateur authentifié, sauvegarde automatique de la conversation");
-      
-      // Logique spéciale pour les consultations historiques
-      if (isHistoricalConsultation && currentConsultation && currentConsultation.id) {
-        console.log(`Ajout de nouveaux messages à la consultation historique ${currentConsultation.id}`);
+        // Logique pour toute consultation existante (historique ou créée récemment)
+      if (currentConsultation && currentConsultation.id) {
+        console.log(`Ajout de nouveaux messages à la consultation existante ${currentConsultation.id}`);
         
         // Identifier les nouveaux messages à ajouter (généralement les 2 derniers messages : user + bot)
         const existingMessageIds = new Set(
@@ -901,189 +914,46 @@ Comment puis-je vous aider ?`
       prevPropAuthState.current = propIsAuthenticated;
     }
   }, [isAuthenticated, propIsAuthenticated])
-
   // Effet pour charger une consultation spécifique si consultationId est fourni
   useEffect(() => {
     let isMounted = true;
     const loadConsultation = async () => {
       if (consultationId && isAuthenticated) {
-        console.log(`Chargement de la consultation: ${consultationId}`);
+        console.log(`Chargement de la conversation: ${consultationId}`);
         setIsLoading(true);
-        
-        try {
-          const consultation = await consultationService.getConsultation(consultationId);
-          if (consultation && consultation.messages && isMounted) {
-            console.log(`Consultation récupérée: Type=${consultation.type}, ${consultation.messages.length} messages`);
+          try {
+          // Charger uniquement depuis la table conversations unifiée (historique sauvegardé)
+          console.log("Chargement de la conversation historique depuis la table conversations unifiée...");
+          const unifiedConversation = await conversationUnifiedService.getConversationWithMessages(consultationId);
+          
+          if (unifiedConversation && unifiedConversation.messages && isMounted) {
+            console.log(`Conversation historique récupérée: Type=${unifiedConversation.type}, ${unifiedConversation.messages.length} messages`);
             
-            // Traiter correctement les recommandations dans les messages
-            const messages = consultation.messages.map(message => {
-              // Traiter correctement la propriété recommendation si elle existe
-              if (message.recommendation) {
-                try {
-                  console.log("Message avec recommandation trouvé:", message.id);
-                  
-                  // Si la recommandation est une chaîne (sérialisée), la convertir en objet
-                  if (typeof message.recommendation === 'string') {
-                    console.log("Recommandation sous forme de chaîne, conversion en objet...");
-                    try {
-                      message.recommendation = JSON.parse(message.recommendation);
-                    } catch (e) {
-                      console.error("Erreur lors de la désérialisation de la recommandation:", e);
-                    }
-                  }
-                  
-                  // Vérification supplémentaire pour s'assurer que la recommandation est bien un objet
-                  if (typeof message.recommendation !== 'object' || message.recommendation === null) {
-                    console.error(`Recommandation du message ${message.id} n'est pas un objet valide:`, 
-                      typeof message.recommendation);
-                    
-                    // Réinitialiser une structure de base minimale pour éviter les erreurs d'affichage
-                    message.recommendation = {
-                      plant: "Plante non spécifiée",
-                      explanation: "Détails non disponibles",
-                      dosage: "Non spécifié",
-                      prep: "Non spécifié",
-                      image_url: "",
-                      contre_indications: "Aucune contre-indication connue",
-                      partie_utilisee: "Non spécifié",
-                      composants: "Non spécifié",
-                      nom_local: ""
-                    };
-                  } else {
-                    // Remplir les champs manquants avec des valeurs par défaut 
-                    // pour garantir un affichage identique à la conversation originale lors de la restauration d'une session
-                    if (!message.recommendation.plant) {
-                      message.recommendation.plant = "Plante non spécifiée";
-                      console.log(`Message ${message.id}: champ 'plant' manquant, valeur par défaut ajoutée`);
-                    }
-                    if (!message.recommendation.dosage) {
-                      message.recommendation.dosage = "Dosage non spécifié";
-                      console.log(`Message ${message.id}: champ 'dosage' manquant, valeur par défaut ajoutée`);
-                    }
-                    if (!message.recommendation.prep) {
-                      message.recommendation.prep = "Préparation non spécifiée";
-                      console.log(`Message ${message.id}: champ 'prep' manquant, valeur par défaut ajoutée`);
-                    }
-                    if (!message.recommendation.image_url) {
-                      message.recommendation.image_url = "";
-                    }
-                    if (!message.recommendation.explanation) {
-                      message.recommendation.explanation = "Pas de détails disponibles";
-                      console.log(`Message ${message.id}: champ 'explanation' manquant, valeur par défaut ajoutée`);
-                    }
-                    if (!message.recommendation.contre_indications) {
-                      message.recommendation.contre_indications = "Aucune contre-indication connue";
-                    }
-                    if (!message.recommendation.partie_utilisee) {
-                      message.recommendation.partie_utilisee = "Non spécifié";
-                    }
-                    if (!message.recommendation.composants) {
-                      message.recommendation.composants = "Non spécifié";
-                    }
-                    if (!message.recommendation.nom_local) {
-                      message.recommendation.nom_local = "";
-                    }
-                  }
-                  
-                  // Vérification du contenu de la recommandation
-                  console.log(`Structure complète de la recommandation pour le message ${message.id} traitée:`, 
-                    message.recommendation.plant);
-                } catch (e) {
-                  console.error("Erreur lors du traitement de la recommandation:", e);
-                }
-              }
-              return message;
-            });
+            // Convertir les messages de la conversation unifiée au format attendu
+            const formattedMessages = unifiedConversation.messages.map((msg, index) => ({
+              id: msg.id || `msg-${index}`,
+              content: msg.content,
+              sender: msg.sender,
+              timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+              recommendation: msg.recommendation
+            }));
             
-            // Convertir les messages au format attendu par le composant
-            const formattedMessages = messages.map(m => {
-              // Vérification supplémentaire des recommandations au moment du formatage
-              let formattedRecommendation = m.recommendation;
+            if (isMounted) {
+              setMessages(formattedMessages);
+              setChatMode(unifiedConversation.chat_mode || "discussion");
               
-              // Si nous avons une recommandation, s'assurer qu'elle est dans le bon format
-              if (formattedRecommendation) {
-                // Dernier essai de conversion si c'est une chaîne
-                if (typeof formattedRecommendation === 'string') {
-                  try {
-                    formattedRecommendation = JSON.parse(formattedRecommendation);
-                    console.log(`Message ${m.id}: dernière conversion string→objet réussie`);
-                  } catch (e) {
-                    console.error(`Message ${m.id}: échec de la dernière tentative de conversion:`, e);
-                    // Si impossible de convertir, mieux vaut supprimer la recommandation que causer une erreur
-                    formattedRecommendation = null;
-                  }
-                }
-                
-                // Validation finale et complétion des champs minimaux requis pour une restauration fidèle
-                if (formattedRecommendation && typeof formattedRecommendation === 'object') {
-                  // Assurer que tous les champs requis par PlantRecommendation sont présents
-                  // pour garantir un affichage identique à la conversation originale lors de la restauration
-                  
-                  // Remplir les champs manquants avec des valeurs par défaut
-                  if (!formattedRecommendation.plant) {
-                    formattedRecommendation.plant = "Plante non spécifiée";
-                    console.log(`Message ${m.id}: champ 'plant' manquant, valeur par défaut ajoutée`);
-                  }
-                  if (!formattedRecommendation.dosage) {
-                    formattedRecommendation.dosage = "Dosage non spécifié";
-                    console.log(`Message ${m.id}: champ 'dosage' manquant, valeur par défaut ajoutée`);
-                  }
-                  if (!formattedRecommendation.prep) {
-                    formattedRecommendation.prep = "Préparation non spécifiée";
-                    console.log(`Message ${m.id}: champ 'prep' manquant, valeur par défaut ajoutée`);
-                  }
-                  if (!formattedRecommendation.image_url) {
-                    formattedRecommendation.image_url = "";
-                  }
-                  if (!formattedRecommendation.explanation) {
-                    formattedRecommendation.explanation = "";
-                    console.log(`Message ${m.id}: champ 'explanation' manquant, valeur par défaut ajoutée`);
-                  }
-                  if (!formattedRecommendation.contre_indications) {
-                    formattedRecommendation.contre_indications = "Aucune contre-indication connue";
-                  }
-                  if (!formattedRecommendation.partie_utilisee) {
-                    formattedRecommendation.partie_utilisee = "Non spécifié";
-                  }
-                  if (!formattedRecommendation.composants) {
-                    formattedRecommendation.composants = "Non spécifié";
-                  }
-                  if (!formattedRecommendation.nom_local) {
-                    formattedRecommendation.nom_local = "";
-                  }
-                  
-                  console.log(`Message ${m.id}: recommendation complète et valide pour '${formattedRecommendation.plant}'`);
-                }
-              }
-              
-              return {
-                id: m.id || Date.now().toString(),
-                content: m.content,
-                sender: m.sender as "user" | "bot",
-                timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-                recommendation: formattedRecommendation
-              };
-            });
-            
-            // Définir le mode de chat en fonction de la consultation
-            console.log(`Définition du mode chat: ${consultation.type || "discussion"}`);
-            setChatMode(consultation.type || "discussion");
-            
-            // Paramétrer les messages
-            setMessages(formattedMessages);
-            
-            // Mémoriser cette consultation comme étant la consultation courante
-            setCurrentConsultation(consultation);
-            
-            // Marquer qu'il s'agit d'une consultation historique
-            setIsHistoricalConsultation(true);
-            
-            console.log(`Consultation historique chargée avec ${formattedMessages.length} messages`);
-          } else if (isMounted) {
-            console.error("La consultation n'a pas pu être chargée ou n'a pas de messages");
+              // Marquer comme conversation historique pour éviter la recréation
+              setIsHistoricalConsultation(true);
+              console.log(`Conversation historique ${consultationId} chargée avec succès`);
+            }          } else {
+            // Si la conversation n'existe pas dans l'historique, afficher un message d'erreur
+            console.log("Conversation historique non trouvée dans la table unifiée");
+            if (isMounted) {
+              console.error("La conversation demandée n'existe pas dans l'historique");
+            }
           }
         } catch (error) {
-          console.error("Erreur lors du chargement de la consultation:", error);
+          console.error("Erreur lors du chargement de la conversation historique:", error);
         } finally {
           if (isMounted) {
             setIsLoading(false);
@@ -1171,84 +1041,91 @@ Comment puis-je vous aider ?`
       try {
         console.log("Sauvegarde de la session complète avant d'en créer une nouvelle");
         
-        // Si nous avons une consultation historique ouverte, mise à jour de celle-ci avec les nouveaux messages
-        if (isHistoricalConsultation && currentConsultation?.id) {
-          console.log(`Mise à jour de la session historique ${currentConsultation.id} avec tous les nouveaux messages`);
+        // Sauvegarder la conversation dans la table unifiée
+        const conversationId = await saveUnifiedConversation(messages, chatMode);
+        if (conversationId) {
+          console.log(`Conversation sauvegardée avec succès dans la table unifiée, ID: ${conversationId}`);
+        } else {
+          console.warn("Échec de la sauvegarde unifiée, utilisation de la méthode traditionnelle");
+              // Si nous avons une consultation existante (historique ou créée), mise à jour de celle-ci avec les nouveaux messages
+        if (currentConsultation?.id) {
+          console.log(`Mise à jour de la consultation existante ${currentConsultation.id} avec tous les nouveaux messages`);
           
-          // Identifier les nouveaux messages ajoutés à cette consultation historique
+          // Identifier les nouveaux messages ajoutés à cette consultation
           const existingMessageIds = new Set(
             (currentConsultation.messages || [])
               .filter(m => m.id)
               .map(m => m.id?.toString())
           );
           
-          // Trouver seulement les nouveaux messages ajoutés depuis le chargement de l'historique
+          // Trouver seulement les nouveaux messages ajoutés depuis le chargement/création
           const newMessages = messages.filter(m => !existingMessageIds.has(m.id?.toString()));
           
           if (newMessages.length > 0) {
-            console.log(`Ajout de ${newMessages.length} nouveaux messages à la session historique`);
-            
-            // Ajouter chaque nouveau message à la consultation existante
-            for (const message of newMessages) {
-              try {
-                // S'assurer que tous les champs de recommandation sont présents pour une restauration fidèle
-                let processedRecommendation = undefined;
-                if (message.recommendation) {
-                  try {
-                    processedRecommendation = JSON.parse(JSON.stringify(message.recommendation));
-                    // Vérifier et compléter chaque champ individuellement pour éviter les erreurs TypeScript
-                    if (!processedRecommendation.plant) {
-                      processedRecommendation.plant = "Plante non spécifiée";
+              console.log(`Ajout de ${newMessages.length} nouveaux messages à la session historique`);
+              
+              // Ajouter chaque nouveau message à la consultation existante
+              for (const message of newMessages) {
+                try {
+                  // S'assurer que tous les champs de recommandation sont présents pour une restauration fidèle
+                  let processedRecommendation = undefined;
+                  if (message.recommendation) {
+                    try {
+                      processedRecommendation = JSON.parse(JSON.stringify(message.recommendation));
+                      // Vérifier et compléter chaque champ individuellement pour éviter les erreurs TypeScript
+                      if (!processedRecommendation.plant) {
+                        processedRecommendation.plant = "Plante non spécifiée";
+                      }
+                      if (!processedRecommendation.dosage) {
+                        processedRecommendation.dosage = "Dosage non spécifié";
+                      }
+                      if (!processedRecommendation.prep) {
+                        processedRecommendation.prep = "Préparation non spécifiée";
+                      }
+                      if (!processedRecommendation.image_url) {
+                        processedRecommendation.image_url = "";
+                      }
+                      if (!processedRecommendation.explanation) {
+                        processedRecommendation.explanation = "";
+                      }
+                      if (!processedRecommendation.contre_indications) {
+                        processedRecommendation.contre_indications = "Aucune contre-indication connue";
+                      }
+                      if (!processedRecommendation.partie_utilisee) {
+                        processedRecommendation.partie_utilisee = "Non spécifié";
+                      }
+                      if (!processedRecommendation.composants) {
+                        processedRecommendation.composants = "Non spécifié";
+                      }
+                      if (!processedRecommendation.nom_local) {
+                        processedRecommendation.nom_local = "";
+                      }
+                    } catch (error) {
+                      console.error("Erreur lors du traitement de la recommandation:", error);
                     }
-                    if (!processedRecommendation.dosage) {
-                      processedRecommendation.dosage = "Dosage non spécifié";
-                    }
-                    if (!processedRecommendation.prep) {
-                      processedRecommendation.prep = "Préparation non spécifiée";
-                    }
-                    if (!processedRecommendation.image_url) {
-                      processedRecommendation.image_url = "";
-                    }
-                    if (!processedRecommendation.explanation) {
-                      processedRecommendation.explanation = "";
-                    }
-                    if (!processedRecommendation.contre_indications) {
-                      processedRecommendation.contre_indications = "Aucune contre-indication connue";
-                    }
-                    if (!processedRecommendation.partie_utilisee) {
-                      processedRecommendation.partie_utilisee = "Non spécifié";
-                    }
-                    if (!processedRecommendation.composants) {
-                      processedRecommendation.composants = "Non spécifié";
-                    }
-                    if (!processedRecommendation.nom_local) {
-                      processedRecommendation.nom_local = "";
-                    }
-                  } catch (error) {
-                    console.error("Erreur lors du traitement de la recommandation:", error);
                   }
+                  
+                  await consultationService.addMessage(currentConsultation.id, {
+                    content: message.content,
+                    sender: message.sender,
+                    recommendation: processedRecommendation
+                  });
+                } catch (error) {
+                  console.error("Erreur lors de l'ajout d'un message à la session historique:", error);
                 }
-                
-                await consultationService.addMessage(currentConsultation.id, {
-                  content: message.content,
-                  sender: message.sender,
-                  recommendation: processedRecommendation
-                });
-              } catch (error) {
-                console.error("Erreur lors de l'ajout d'un message à la session historique:", error);
               }
+              
+              console.log("Session historique mise à jour avec succès");
+            } else {
+              console.log("Aucun nouveau message à ajouter à la session historique");
             }
-            
-            console.log("Session historique mise à jour avec succès");
-          } else {
-            console.log("Aucun nouveau message à ajouter à la session historique");
           }
-        }
-        // Sinon, créer une nouvelle consultation contenant toute la session
-        else {
-          // Utiliser createNewConsultation qui va créer une entrée complète avec tous les messages
-          await createNewConsultation();
-          console.log("Nouvelle session complète sauvegardée avec succès");
+          // Sinon, créer une nouvelle consultation contenant toute la session
+          else {
+            // Utiliser createNewConsultation qui va créer une entrée complète avec tous les messages
+            await createNewConsultation();
+            console.log("Nouvelle session complète sauvegardée avec succès");
+          }
         }
       } catch (error) {
         console.error("Erreur lors de la sauvegarde de la session:", error);
@@ -1377,23 +1254,22 @@ Comment puis-je vous aider ?`
               console.log("Déconnexion - Pas de token valide, impossible de sauvegarder");
               return;
             }
-            
-            // Si nous avons une consultation historique ouverte, mise à jour de celle-ci avec les nouveaux messages
-            if (isHistoricalConsultation && currentConsultation?.id) {
-              console.log(`Déconnexion - Mise à jour de la session historique ${currentConsultation.id}`);
+              // Si nous avons une consultation existante (historique ou créée), mise à jour de celle-ci avec les nouveaux messages
+            if (currentConsultation?.id) {
+              console.log(`Déconnexion - Mise à jour de la consultation existante ${currentConsultation.id}`);
               
-              // Identifier tous les nouveaux messages ajoutés depuis la restauration de l'historique
+              // Identifier tous les nouveaux messages ajoutés depuis la restauration/création de la consultation
               const existingMessageIds = new Set(
                 (currentConsultation.messages || [])
                   .filter(m => m.id)
                   .map(m => m.id?.toString())
               );
               
-              // Trouver seulement les nouveaux messages ajoutés depuis le chargement de l'historique
+              // Trouver seulement les nouveaux messages ajoutés depuis le chargement/création
               const newMessages = messages.filter(m => !existingMessageIds.has(m.id?.toString()));
               
               if (newMessages.length > 0) {
-                console.log(`Déconnexion - Ajout de ${newMessages.length} nouveaux messages à la session historique`);
+                console.log(`Déconnexion - Ajout de ${newMessages.length} nouveaux messages à la consultation existante`);
                 
                 // Ajouter chaque nouveau message à la consultation existante
                 let success = true;
@@ -1424,15 +1300,16 @@ Comment puis-je vous aider ?`
                     break;
                   }
                 }
-                
-                if (success) {
-                  console.log("Déconnexion - Session historique mise à jour avec succès");
+                  if (success) {
+                  console.log("Déconnexion - Consultation existante mise à jour avec succès");
                 }
+              } else {
+                console.log("Déconnexion - Aucun nouveau message à ajouter à la consultation existante");
               }
             } 
-            // Sinon, créer une nouvelle consultation contenant toute la session
+            // Seulement si nous n'avons aucune consultation existante, créer une nouvelle consultation
             else if (messages.length >= 2) {
-              console.log("Déconnexion - Création d'une nouvelle entrée d'historique pour la session en cours");
+              console.log("Déconnexion - Création d'une nouvelle entrée d'historique pour la session en cours (aucune consultation existante)");
               
               // Utiliser directement l'API pour éviter les problèmes avec le service
               try {
@@ -1462,8 +1339,7 @@ Comment puis-je vous aider ?`
                     messages: messagesToSend
                   }),
                 });
-                
-                if (response.ok) {
+                  if (response.ok) {
                   const newConsultation = await response.json();
                   console.log("Déconnexion - Nouvelle session sauvegardée avec succès:", newConsultation.id);
                 } else {
@@ -1472,6 +1348,8 @@ Comment puis-je vous aider ?`
               } catch (error) {
                 console.error("Déconnexion - Erreur lors de la création de la consultation:", error);
               }
+            } else {
+              console.log("Session ignorée pour la sauvegarde car aucune consultation existante et conversation incomplète ou utilisateur non connecté");
             }
           } catch (error) {
             console.error("Déconnexion - Erreur lors de la sauvegarde de la session complète:", error);

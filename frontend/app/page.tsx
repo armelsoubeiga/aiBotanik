@@ -10,6 +10,7 @@ import { ArrowLeft, AlertCircle } from "lucide-react"
 import { CountrySelection } from "@/components/country-selection"
 import { TradipraticiensList } from "@/components/tradipraticiens-list"
 import { ConsultationHistory } from "@/components/consultation-history"
+import { UnifiedConversationHistory } from "@/components/unified-conversation-history"
 import { PreDiagnostic } from "@/components/pre-diagnostic"
 import { samplePlants } from "@/data/samplePlants" // Import samplePlants
 import { authService } from "@/services/auth-service"
@@ -321,13 +322,11 @@ export default function Home() {
             </div>
           );
         }
-        
-        // Sinon, afficher l'historique des consultations
+          // Sinon, afficher l'historique des conversations unifiées
         return (
-          <ConsultationHistory
-            consultations={userConsultations}
-            isLoading={isLoadingConsultations}
-            onConsultationSelect={(id) => {
+          <UnifiedConversationHistory
+            isAuthenticated={isAuthenticated}
+            onConversationSelect={(id) => {
               setSelectedConsultation(id)
               setCurrentView("chat")
             }}
