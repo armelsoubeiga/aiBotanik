@@ -14,6 +14,15 @@ export interface PlantRecommendation {
   partie_utilisee: string;
   composants: string;
   nom_local: string;
+  // Nouveaux champs structurés venant directement du backend
+  diagnostic?: string;
+  symptomes?: string;
+  presentation?: string;
+  mode_action?: string;
+  traitement_info?: string;
+  precautions_info?: string;
+  composants_info?: string;
+  resume_traitement?: string;
 }
 
 interface PlantRecommendationCardProps {
@@ -54,8 +63,7 @@ export function PlantRecommendationCard({ recommendation }: PlantRecommendationC
       return renderErrorCard("Impossible de traiter les détails de cette recommandation.");
     }
   }
-  
-  // Assurer que tous les champs requis sont présents
+    // Assurer que tous les champs requis sont présents
   const requiredFields: Record<keyof PlantRecommendation, string> = {
     plant: "Plante non spécifiée",
     dosage: "Dosage non spécifié",
@@ -65,18 +73,27 @@ export function PlantRecommendationCard({ recommendation }: PlantRecommendationC
     contre_indications: "Aucune contre-indication connue",
     partie_utilisee: "Non spécifié",
     composants: "Non spécifié",
-    nom_local: ""
+    nom_local: "",
+    // Nouveaux champs structurés (optionnels)
+    diagnostic: "",
+    symptomes: "",
+    presentation: "",
+    mode_action: "",
+    traitement_info: "",
+    precautions_info: "",
+    composants_info: "",
+    resume_traitement: ""
   };
+    // Compléter les champs manquants obligatoires seulement (les champs structurés sont optionnels)
+  const obligatoryFields = ["plant", "dosage", "prep", "image_url", "explanation", "contre_indications", "partie_utilisee", "composants", "nom_local"];
   
-  // Compléter les champs manquants pour garantir l'affichage complet
-  for (const field of Object.keys(requiredFields) as Array<keyof PlantRecommendation>) {
-    if (!processedRecommendation[field]) {
-      processedRecommendation[field] = requiredFields[field];
-      console.warn(`Champ '${field}' manquant dans la recommandation, valeur par défaut ajoutée`);
+  for (const field of obligatoryFields) {
+    if (!processedRecommendation[field as keyof PlantRecommendation]) {
+      processedRecommendation[field as keyof PlantRecommendation] = requiredFields[field as keyof PlantRecommendation];
+      console.warn(`Champ obligatoire '${field}' manquant dans la recommandation, valeur par défaut ajoutée`);
     }
   }
-  
-  // Valider que l'explication existe et normaliser si nécessaire
+    // S'assurer que l'explication existe et normaliser si nécessaire
   const safeExplanation = processedRecommendation.explanation || "";
   
   // Fonction utilitaire pour afficher une carte d'erreur
@@ -103,140 +120,124 @@ export function PlantRecommendationCard({ recommendation }: PlantRecommendationC
     console.warn(`⚠️ L'explication semble très courte (${safeExplanation.length} caractères):`);
     console.log(safeExplanation);
   }
-  // Extraction des sections de l'explication (basées sur la structure du prompt dans le backend)
-  const extractSections = (text: string) => {
-    const sections = [
-      "Diagnostic possible",
-      "Symptômes associés",
-      "Présentation de",
-      "Mode d'action",
-      "Informations de traitement",
-      "Précautions et contre-indications",
-      "Composants actifs",
-      "Résumé de traitement"
-    ];
-    
-    const result: Record<string, string> = {};
-    
-    // Si l'explication est vide ou indéfinie, retourner un objet avec des valeurs par défaut
-    if (!text) {
-      console.log("ERREUR: Texte d'explication vide ou non défini");
-      result["Diagnostic possible"] = "Les informations de diagnostic ne sont pas disponibles pour le moment.";
-      result["Résumé de traitement"] = "Consultez les détails de préparation et de dosage ci-dessous pour ce remède.";
-      return result;
+
+  // NOUVEAU: Prioriser les champs structurés s'ils sont disponibles (backend OpenAI)
+  // Sinon, extraire depuis l'explication (fallback pour autres backends)
+  const getSectionContent = (structuredField: string | undefined, sectionTitle: string, fallbackText: string = "") => {
+    // D'abord vérifier si le champ structuré existe et n'est pas vide
+    if (structuredField && structuredField.trim()) {
+      console.log(`✅ Utilisation du champ structuré pour: ${sectionTitle}`);
+      return structuredField.trim();
     }
     
-    console.log("Extraction des sections depuis l'explication:", text.substring(0, 100) + "...");
-    
-    // Détection du format du texte (présence de sections ou texte brut)
-    const containsMarkers = sections.some(section => text.includes(section));
-    
-    // Si le texte contient des marqueurs de sections, procéder à l'extraction normale
-    if (containsMarkers) {
-      let currentSection = "";
-      let currentContent: string[] = [];
-      
-      // Normaliser le texte pour éviter les problèmes de formatage
-      const normalizedText = text.replace(/\r\n/g, "\n").trim();
-      const lines = normalizedText.split("\n");
-      
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        
-        // Vérifier si la ligne correspond à un en-tête de section
-        const foundSection = sections.find(section => 
-          trimmedLine === section || 
-          trimmedLine.startsWith(section + " ")
-        );
-        
-        if (foundSection) {
-          console.log("Section trouvée:", foundSection);
-          
-          // Si on a déjà une section en cours, on l'enregistre
-          if (currentSection && currentContent.length > 0) {
-            result[currentSection] = currentContent.join("\n");
-            currentContent = [];
-          }
-          
-          currentSection = foundSection;
-        } else if (currentSection) {
-          // Ajouter à la section en cours
-          currentContent.push(line);
-        }
-      }
-      
-      // Enregistrer la dernière section
-      if (currentSection && currentContent.length > 0) {
-        result[currentSection] = currentContent.join("\n");
+    // Sinon, essayer d'extraire depuis l'explication
+    if (safeExplanation) {
+      const extracted = extractSectionFromExplanation(safeExplanation, sectionTitle);
+      if (extracted) {
+        console.log(`📄 Extraction depuis l'explication pour: ${sectionTitle}`);
+        return extracted;
       }
     }
     
-    // Si aucune section n'a été correctement extraite, essayer une approche différente
-    if (Object.keys(result).length === 0) {
-      console.log("Méthode alternative d'extraction de sections");
-      
-      // Normaliser le texte et le diviser en blocs
-      const normalizedText = text.replace(/\r\n/g, "\n").trim();
-      
-      // Essayer de diviser par double saut de ligne
-      const blocks = normalizedText.split(/\n\s*\n/).filter(block => block.trim());
-      
-      console.log(`Nombre de blocs de texte identifiés: ${blocks.length}`);
-      
-      // Si nous avons suffisamment de blocs, essayer de les associer aux sections
-      if (blocks.length >= 3) {
-        // Analyser chaque bloc pour trouver des indices sur son contenu
-        blocks.forEach((block, index) => {
-          const lowerBlock = block.toLowerCase();
-          
-          // Catégoriser les blocs
-          if (index === 0 || lowerBlock.includes("diagnostic") || lowerBlock.includes("symptôme")) {
-            result["Diagnostic possible"] = block;
-          } else if (lowerBlock.includes("préparation") || lowerBlock.includes("dosage") || lowerBlock.includes("traitement") && !result["Informations de traitement"]) {
-            result["Informations de traitement"] = block;
-          } else if (lowerBlock.includes("action") || lowerBlock.includes("effet")) {
-            result["Mode d'action"] = block;
-          } else if (lowerBlock.includes("composant") || lowerBlock.includes("actif")) {
-            result["Composants actifs"] = block;
-          } else if (lowerBlock.includes("précaution") || lowerBlock.includes("contre-indication") || lowerBlock.includes("risque")) {
-            result["Précautions et contre-indications"] = block;
-          } else if (index === blocks.length - 1 || lowerBlock.includes("résumé")) {
-            result["Résumé de traitement"] = block;
-          } else if (lowerBlock.includes("présentation") || lowerBlock.includes("plante")) {
-            result["Présentation de"] = block;
-          }
-        });
-        
-        // Assurer au minimum un diagnostic et un résumé
-        if (!result["Diagnostic possible"] && blocks.length > 0) {
-          result["Diagnostic possible"] = blocks[0];
-        }
-        
-        if (!result["Résumé de traitement"] && blocks.length > 1) {
-          result["Résumé de traitement"] = blocks[blocks.length - 1];
-        }
-      } 
-      // Si nous n'avons pas assez de blocs ou aucune section n'a été identifiée
-      else {
-        console.log("Création de sections par défaut à partir du texte brut");
-        
-        // Utiliser tout le texte comme diagnostic
-        result["Diagnostic possible"] = normalizedText;
-        
-        // Si le texte est assez long, créer un résumé à partir de la fin
-        if (normalizedText.length > 200) {
-          const lastSentences = normalizedText.split(/[.!?]/).slice(-3).join(". ") + ".";
-          result["Résumé de traitement"] = lastSentences;
-        }
-      }
-    }
-    
-    console.log("Sections extraites:", Object.keys(result));
-    return result;
+    // En dernier recours, utiliser le texte de fallback
+    console.log(`⚠️ Utilisation du fallback pour: ${sectionTitle}`);
+    return fallbackText;
   };
 
-  // S'assurer que l'explication existe et n'est pas undefined avant d'extraire les sections
-  const sections = extractSections(recommendation?.explanation || "");
+  // Fonction utilitaire pour extraire une section spécifique de l'explication
+  const extractSectionFromExplanation = (text: string, sectionTitle: string): string => {
+    const lines = text.split('\n');
+    let currentSection = "";
+    let currentContent: string[] = [];
+    let foundSection = false;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Vérifier si la ligne correspond à notre section
+      if (trimmedLine === sectionTitle || trimmedLine.startsWith(sectionTitle)) {
+        foundSection = true;
+        continue;
+      }
+      
+      // Si on a trouvé notre section et qu'on arrive à une nouvelle section
+      if (foundSection && (
+        trimmedLine.startsWith("Diagnostic possible") ||
+        trimmedLine.startsWith("Symptômes associés") ||
+        trimmedLine.startsWith("Présentation de") ||
+        trimmedLine.startsWith("Mode d'action") ||
+        trimmedLine.startsWith("Informations de traitement") ||
+        trimmedLine.startsWith("Précautions et contre-indications") ||
+        trimmedLine.startsWith("Composants actifs") ||
+        trimmedLine.startsWith("Résumé de traitement")
+      )) {
+        break;
+      }
+      
+      // Ajouter le contenu si on est dans la bonne section
+      if (foundSection && trimmedLine) {
+        currentContent.push(line);
+      }
+    }
+    
+    return currentContent.join('\n').trim();
+  };
+
+  // Créer un objet sections unifié utilisant les champs structurés en priorité
+  const sections = {
+    "Diagnostic possible": getSectionContent(
+      processedRecommendation.diagnostic,
+      "Diagnostic possible",
+      "Les informations de diagnostic ne sont pas disponibles pour le moment."
+    ),
+    "Symptômes associés": getSectionContent(
+      processedRecommendation.symptomes,
+      "Symptômes associés",
+      "Les symptômes associés ne sont pas détaillés."
+    ),
+    "Présentation de": getSectionContent(
+      processedRecommendation.presentation,
+      "Présentation de",
+      `La plante ${processedRecommendation.plant} est utilisée en phytothérapie traditionnelle.`
+    ),
+    "Mode d'action": getSectionContent(
+      processedRecommendation.mode_action,
+      "Mode d'action",
+      "Le mode d'action de cette plante n'est pas détaillé."
+    ),
+    "Informations de traitement": getSectionContent(
+      processedRecommendation.traitement_info,
+      "Informations de traitement",
+      `Préparation: ${processedRecommendation.prep}\nDosage: ${processedRecommendation.dosage}`
+    ),
+    "Précautions et contre-indications": getSectionContent(
+      processedRecommendation.precautions_info,
+      "Précautions et contre-indications",
+      processedRecommendation.contre_indications || "Aucune contre-indication spécifique mentionnée."
+    ),
+    "Composants actifs": getSectionContent(
+      processedRecommendation.composants_info,
+      "Composants actifs",
+      processedRecommendation.composants || "Les composants actifs ne sont pas détaillés."
+    ),
+    "Résumé de traitement": getSectionContent(
+      processedRecommendation.resume_traitement,
+      "Résumé de traitement",
+      "Consultez les détails de préparation et de dosage pour ce remède."
+    )
+  };
+
+  console.log("Sections finales créées:", Object.keys(sections));
+  console.log("Utilisation des champs structurés:", {
+    diagnostic: !!processedRecommendation.diagnostic,
+    symptomes: !!processedRecommendation.symptomes,
+    presentation: !!processedRecommendation.presentation,
+    mode_action: !!processedRecommendation.mode_action,
+    traitement_info: !!processedRecommendation.traitement_info,
+    precautions_info: !!processedRecommendation.precautions_info,
+    composants_info: !!processedRecommendation.composants_info,
+    resume_traitement: !!processedRecommendation.resume_traitement
+  });
 
   return (
     <Card className="border-emerald-100 hover:shadow-md transition-all duration-300 bg-gradient-to-br from-white to-emerald-50 overflow-hidden">

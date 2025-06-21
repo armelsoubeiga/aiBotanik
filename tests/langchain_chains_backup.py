@@ -3,19 +3,17 @@ import time
 import pickle
 import requests
 import json
+import pandas as pd
 import traceback
 from langchain_core.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.docstore.document import Document
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import HuggingFaceHub
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import logging
-import random
-# Imports pour la nouvelle approche HuggingFace
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
-from langchain_huggingface import HuggingFacePipeline
 
 # Configurer le logging pour avoir plus d'informations sur les erreurs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -83,13 +81,11 @@ def generate_huggingface_response(prompt: str, api_key: str, model_id: str = "go
 # Charger les variables d'environnement
 load_dotenv()
 UNSPLASH_KEY = os.getenv("UNSPLASH_KEY")
-HF_API_KEY = os.getenv("HUGGINGFACEHUB_API_TOKEN", os.getenv("HF_API_KEY"))
+HF_API_KEY = os.getenv("HF_API_KEY")
 
-# Vérifier si la clé est disponible et loguer l'information
+# Configurer la clé Hugging Face pour LangChain
 if HF_API_KEY:
-    logger.info("Clé API HuggingFace trouvée")
-else:
-    logger.warning("Clé API HuggingFace non trouvée dans les variables d'environnement. Certaines fonctionnalités peuvent ne pas fonctionner correctement.")
+    os.environ["HUGGINGFACEHUB_API_TOKEN"] = HF_API_KEY
 
 # Chemin pour stocker l'index vectoriel
 VECTORSTORE_PATH = os.path.join("data", "faiss_index.pkl")
@@ -98,190 +94,77 @@ METADATA_PATH = os.path.join("data", "vector_metadata.pkl")
 # Initialiser Embeddings 
 emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-# Prompt template harmonisé avec le backend OpenAI
+# Prompt template
 template = """
 Tu es un expert en phytothérapie africaine avec une approche très humaine et pédagogique. Pour les symptômes décrits: {symptoms},
-formule une explication structurée selon les sections suivantes dans CET ORDRE EXACT en utilisant DIRECTEMENT les informations issues du CSV:
+et en considérant les données de la plante: {plant_data}, formule une explication complète et structurée selon les sections suivantes dans cet ordre exact:
 
-Diagnostic possible (maladiesoigneeparrecette → pathologie)
-Commence par cette phrase EXACTE: "D'après vos symptômes décrits, il est possible que vous souffriez de {pathology}." puis mets le nom de la pathologie en MAJUSCULES. Tu ne dois JAMAIS affirmer avec certitude qu'il s'agit de cette maladie. Sois prudent et précise qu'il s'agit d'une possibilité basée sur les symptômes décrits et non d'un diagnostic médical définitif. Recommande toujours une consultation médicale professionnelle pour confirmer. (3-4 phrases maximum)
+Diagnostic possible
+Analyse les symptômes avec compassion et explique quelle pathologie est probablement évoquée. Mets en MAJUSCULES le nom de la pathologie identifiée. Parle directement au patient comme dans une consultation en face à face.
 
-Symptômes associés (maladiesoigneeparrecette → symptômes)
-Présente les symptômes typiques de cette pathologie de manière pédagogique. Décris précisément comment ils se manifestent pour aider à reconnaître la maladie. (3-5 phrases)
+Symptômes associés
+Présente les symptômes typiques de cette pathologie de manière pédagogique, en expliquant pourquoi ils apparaissent et comment ils se manifestent habituellement.
 
-Présentation de {plant_name} (plante_recette → présentation)
-Présente cette plante comme un conteur traditionnel, évoquant son histoire et ses usages traditionnels en Afrique. Utilise le nom scientifique et les noms locaux s'ils sont fournis. (4-5 phrases)
+Présentation de {plant_name}
+Présente cette plante comme le ferait un conteur traditionnel, en incluant son histoire, ses usages traditionnels et sa place dans la culture médicinale africaine. Sois passionnant et évocateur, pour donner envie de découvrir cette plante.
 
-Mode d'action (plante_composantechimique → mode d'action)
-En t'appuyant sur les composants actifs mentionnés, explique simplement comment la plante agit pour traiter la pathologie. Évite les termes techniques tout en restant scientifiquement correct. (3-4 phrases)
+Mode d'action
+Explique les mécanismes d'action de la plante en termes simples mais scientifiquement exacts, comme un professeur passionné qui veut rendre la science accessible. Explique comment la plante interagit avec le corps pour traiter la pathologie identifiée.
 
-Informations de traitement (recette, plante_quantite_recette, plante_partie_recette → traitement)
-Transforme ces données brutes en conseils pratiques et accessibles:
+Informations de traitement
+Présente les informations de dosage, préparation et parties utilisées en les transformant en véritables conseils pratiques et accessibles, comme le ferait un herboriste expérimenté expliquant un remède à un novice. Intègre les données brutes suivantes de manière fluide et naturelle:
 - Préparation: {preparation}
-- Dosage: {dosage}
+- Dosage: {dosage} 
 - Parties utilisées: {parties_utilisees}
-Explique clairement comment préparer, doser et utiliser les bonnes parties de la plante. (5-7 phrases maximum au total)
 
-Précautions et contre-indications (recette_contreindication, plante_contreindication → précautions)
-Cette section doit être structurée en deux parties:
-1. Contre-indications liées à la recette: {contre_indications_recette}
-2. Contre-indications liées à la plante: {contre_indications_plante}
-Humanise ces données pour les rendre compréhensibles. (4-6 phrases)
+Précautions et contre-indications
+Transforme les données brutes suivantes: "{contre_indications}" en explications détaillées des risques et précautions. Humanise complètement le langage technique. Explique POURQUOI ces précautions sont importantes pour la sécurité du patient, pas seulement lesquelles. Ajoute des conseils concrets pour minimiser les risques.
 
-Composants actifs (plante_composantechimique → composants)
-Transforme cette liste de composants: "{composants}" en expliquant leurs effets thérapeutiques principaux. Ne mentionne QUE les composés qui apparaissent explicitement dans cette liste. (3-4 phrases)
+Composants actifs
+Transforme la liste brute des composants suivants: "{composants}" en explications sur les principaux composés actifs et leurs effets thérapeutiques spécifiques. Explique comment ces composés naturels agissent en synergie.
 
-Résumé de traitement (synthèse des informations précédentes)
-Synthétise en 4-5 phrases le diagnostic et le traitement, incluant clairement:
-1. Le nom de la pathologie (en précisant qu'il s'agit d'une possibilité basée sur les symptômes)
-2. La plante principale et sa méthode de préparation
-3. La posologie exacte (dosage et nombre de prises par jour)
-4. La durée recommandée du traitement (7 jours par défaut si non spécifié)
-5. Quand consulter un professionnel de santé (si les symptômes persistent après 3 jours)(7 jours par défaut si non spécifié)
-5. Quand consulter un professionnel (si les symptômes persistent après 3 jours)
+Résumé de traitement
+Synthétise en 3-4 phrases claires le diagnostic et le traitement recommandé, comme si tu devais laisser au patient une ordonnance simple à suivre. Ce résumé doit être facilement mémorisable et expliciter clairement la posologie recommandée et la durée du traitement.
 
-EXIGENCES STRICTES:
-1. Chaque section DOIT être présente, avec son titre exact et dans l'ordre indiqué
-2. Utilise UNIQUEMENT les informations fournies dans le contexte du CSV (voir correspondances)
-3. Si une information est marquée "Non spécifié", propose une recommandation générale sans inventer
-4. Ton langage doit être accessible et chaleureux, mais précis sur les dosages et précautions
-5. Réponds UNIQUEMENT en français, structure ta réponse avec des sauts de ligne entre les sections
+Réponds en français avec un ton chaleureux, rassurant, et conversationnel. Évite absolument le langage technique ou clinique. Chaque section doit commencer par son titre simple sans numérotation ni formatage spécial, et doit être suivie d'un paragraphe substantiel qui humanise complètement les données brutes. Utilise un langage simple mais précis, et assure-toi que tes explications soient accessibles même pour quelqu'un sans formation médicale.
 """
-prompt = PromptTemplate(
-    input_variables=[
-        "symptoms", "plant_name", "pathology", "preparation", "dosage", "parties_utilisees",
-        "contre_indications_recette", "contre_indications_plante", "composants"
-    ], 
-    template=template
-)
+prompt = PromptTemplate(input_variables=["symptoms", "plant_data", "plant_name", "preparation", "dosage", "parties_utilisees", "contre_indications", "composants"], template=template)
 
-# Initialisation du modèle LLM avec HuggingFacePipeline #model_id="google/flan-t5-base"
-def init_llm_model(use_local=False, model_id="tiiuae/falcon-7b-instruct"):
-    """
-    Initialise le modèle LLM pour les consultations en utilisant l'approche moderne HuggingFacePipeline.
-    
-    Args:
-        use_local (bool): Si True, charge le modèle localement. Sinon, utilise l'API HuggingFace.
-        model_id (str): L'identifiant du modèle HuggingFace à utiliser.
-    
-    Returns:
-        Le modèle LLM initialisé ou None en cas d'erreur.
-    """
+# Fonction pour initialiser le modèle LLM Hugging Face
+def initialize_llm():
+    """Initialise le modèle LLM Hugging Face avec gestion d'erreurs"""
     try:
-        if use_local:
-            # Vérifier si CUDA est disponible pour utiliser le GPU
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"Initialisation du modèle HuggingFace local ({model_id}) sur {device}")
+        if not HF_API_KEY:
+            logger.error("❌ Clé API Hugging Face non configurée dans le fichier .env")
+            return None
             
-            # Chargement local du modèle avec paramètres optimisés
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
-            
-            # Création du pipeline text2text-generation avec paramètres optimisés
-            text_generation = pipeline(
-                task="text2text-generation",
-                model=model,
-                tokenizer=tokenizer,
-                device=device,
-                do_sample=True,
-                temperature=0.7,
-                max_new_tokens=512,
-                top_p=0.95,
-                top_k=50,
-            )
-              # Création du LLM LangChain
-            logger.info(f"Pipeline local pour {model_id} initialisé avec succès")
-            return HuggingFacePipeline(pipeline=text_generation)
-        else:
-            # Utilisation de l'API distante via un pipeline Transformers avec API
-            if not HF_API_KEY:
-                logger.error("Impossible d'initialiser le modèle HuggingFace: clé API manquante")
-                return None
-                
-            logger.info(f"Initialisation du modèle HuggingFace via API ({model_id})")
-            
-            # Utiliser un pipeline avec l'API token pour accéder aux modèles distants
-            try:
-                from transformers import pipeline as transformers_pipeline
-                
-                # Créer un pipeline qui utilise l'API Hugging Face
-                text_generation = transformers_pipeline(
-                    task="text2text-generation",
-                    model=model_id,
-                    token=HF_API_KEY,  # Utiliser le token pour l'authentification
-                    device="cpu",
-                    do_sample=True,
-                    temperature=0.7,
-                    max_new_tokens=512,
-                    top_p=0.95,
-                    top_k=50,
-                )
-                
-                # Enrober dans HuggingFacePipeline
-                return HuggingFacePipeline(pipeline=text_generation)
-                
-            except Exception as e:
-                logger.error(f"Erreur lors de l'initialisation du pipeline distant: {e}")
-                # Fallback sur l'ancienne méthode si disponible
-                try:
-                    from langchain_community.llms import HuggingFaceHub
-                    return HuggingFaceHub(
-                        repo_id=model_id,
-                        huggingfacehub_api_token=HF_API_KEY,
-                        model_kwargs={
-                            "temperature": 0.7, 
-                            "max_length": 512,
-                        },
-                    )
-                except Exception as e2:
-                    logger.error(f"Fallback HuggingFaceHub également échoué: {e2}")
-                    return None
+        logger.info(f"🔧 Initialisation du modèle Hugging Face avec la clé: {HF_API_KEY[:10]}...")
+        
+        llm = HuggingFaceHub(
+            repo_id="google/flan-t5-base",
+            model_kwargs={
+                "temperature": 0.7,
+                "max_length": 512,
+                "do_sample": True,
+                "return_full_text": False
+            }
+        )
+        
+        # Test rapide du modèle
+        test_response = llm.invoke("Test: Hello")
+        logger.info(f"✅ Modèle Hugging Face initialisé avec succès. Test: '{test_response}'")
+        return llm
+        
     except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation du modèle LLM: {str(e)}")
+        logger.error(f"❌ Erreur lors de l'initialisation du modèle Hugging Face: {e}")
+        import traceback
         traceback.print_exc()
         return None
 
-# Modèle LLM pour les consultations - L'initialisation est reportée à la première utilisation
-llm = None
-
-# Chaîne également initialisée à la première utilisation
-chain = None
-
-def get_llm_chain():
-    """
-    Récupère ou initialise la chaîne LLM pour les consultations.
-    Cette fonction permet de n'initialiser le modèle que lorsqu'il est réellement nécessaire,
-    économisant ainsi les ressources au démarrage.
-    
-    Returns:
-        La chaîne LLM initialisée ou None en cas d'erreur.
-    """
-    global llm, chain
-    
-    if chain is not None:
-        return chain
-        
-    try:
-        # Initialiser le modèle si ce n'est pas déjà fait
-        if llm is None:
-            # En production, utiliser l'API par défaut (use_local=False)
-            # Pour les tests locaux ou le développement, on peut passer use_local=True
-            use_local = os.getenv("USE_LOCAL_MODEL", "False").lower() in ("true", "1", "t")
-            llm = init_llm_model(use_local=use_local)
-            
-            if llm is None:
-                logger.error("Échec de l'initialisation du modèle LLM")
-                return None
-        
-        # Créer la chaîne
-        logger.info("Initialisation de la chaîne LLM")
-        chain = LLMChain(llm=llm, prompt=prompt)
-        return chain
-    except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation de la chaîne LLM: {str(e)}")
-        traceback.print_exc()
-        return None
+# Modèle LLM pour les consultations (recommandations spécifiques)
+llm = initialize_llm()
+# Chaîne LLM pour les consultations
+chain = LLMChain(llm=llm, prompt=prompt) if llm else None
 
 # Modèle LLM séparé pour le chat (discussions générales)
 # Sera initialisé lors du premier appel à generate_chat_response()
@@ -401,9 +284,10 @@ def load_or_build_vectorstore(df, csv_path):
 def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
     import pandas as pd
     
-    # Initialiser le vectorstore une seule fois et le mettre en cache
-    global vectorstore
+    # Déclarer les variables globales au début
+    global vectorstore, llm, chain
     
+    # Initialiser le vectorstore une seule fois et le mettre en cache
     if 'vectorstore' not in globals() or vectorstore is None:
         # Charge ou construit l'index vectoriel selon si le fichier source a été modifié
         vectorstore = load_or_build_vectorstore(df, csv_path)
@@ -599,54 +483,255 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
                 nom_local_info = f"Nom local: {nom_local} en {langue} ({pays})."
             else:
                 nom_local_info = ""
-      # Extraire les pathologies traitées
+    
+    # Extraire les pathologies traitées
     pathologies = plant.get('maladiesoigneeparrecette', 'Non spécifié')
     
     # Correction des pathologies en cas d'incohérence
+    # Corriger spécifiquement le cas où les symptômes contiennent "paludisme" mais 
+    # la pathologie renvoyée est autre chose que paludisme/malaria
     if "palud" in symptoms.lower() or "malaria" in symptoms.lower():
         if not ("palud" in pathologies.lower() or "malaria" in pathologies.lower()):
             print(f"Correction de la pathologie: {pathologies} -> paludisme (basé sur les symptômes)")
             pathologies = "paludisme"
     
-    # Utiliser le LLM HuggingFace pour générer une explication détaillée ET des sections structurées
-    print("Tentative d'utilisation du LLM HuggingFace pour la génération d'explication enrichie...")
+    # Améliorer la description des symptômes pour le paludisme
+    symptomes_detailles = ""
+    if "palud" in pathologies.lower() or "malaria" in pathologies.lower():
+        symptomes_detailles = "fièvre intermittente avec pics élevés, maux de tête intenses, frissons, sueurs, fatigue extrême, douleurs musculaires et articulaires, parfois nausées et vomissements"
+    else:
+        symptomes_detailles = "fièvre, douleurs, faiblesse générale"
     
-    try:
-        # Obtenir la chaîne LLM HuggingFace
-        llm_chain = get_llm_chain()
-        
-        if llm_chain is not None:
-            # Préparer les variables pour le nouveau template
-            explanation = llm_chain.run(
-                symptoms=symptoms,
-                plant_name=plant_names,
-                pathology=pathologies.strip(),
-                preparation=preparation,
-                dosage=dosage,
-                parties_utilisees=partie_utilisee,
-                contre_indications_recette=plant.get("recette_contreindication", "Aucune contre-indication spécifique à la recette mentionnée"),
-                contre_indications_plante=plant.get("plante_contreindication", "Aucune contre-indication spécifique à la plante mentionnée"),
-                composants=composants
-            )
-            print("Explication générée avec succès par HuggingFace LLM")
-            
-            # Extraire les sections de l'explication pour créer des champs structurés individuels
-            sections = extract_sections_from_explanation(explanation)
+    # Améliorer la description du mode d'action
+    mode_action = ""
+    if "cryptolepia" in plant_names.lower():
+        mode_action = f"{plant_names} contient de la cryptolépine et d'autres alcaloïdes qui possèdent des propriétés antiparasitaires puissantes contre le Plasmodium (parasite responsable du paludisme). Ces composés inhibent la croissance du parasite dans les globules rouges et réduisent la charge parasitaire dans le sang."
+    elif "cymbopogon" in plant_names.lower():
+        mode_action = f"{plant_names} contient du citral et d'autres composés terpéniques qui possèdent des propriétés anti-inflammatoires et antipyrétiques (contre la fièvre). Cette plante aide à soulager les symptômes du paludisme tout en renforçant le système immunitaire."
+    elif "khaya" in plant_names.lower():
+        mode_action = f"{plant_names} (acajou du Sénégal) contient des limonoïdes et des saponines qui ont démontré des effets antipaludiques significatifs. Ces composés aident à réduire la parasitémie et à soulager les symptômes liés à l'infection."
+    elif "moringa" in plant_names.lower():
+        mode_action = f"{plant_names} est extrêmement nutritif et contient des composés anti-inflammatoires et antioxydants qui aident l'organisme à combattre l'infection paludique tout en renforçant le système immunitaire affaibli par la maladie."
+    else:
+        mode_action = f"{plant_names} est efficace contre {pathologies} grâce à ses composés actifs qui agissent sur les symptômes et aident à combattre les agents pathogènes responsables de la maladie."
+    
+    # Format plus clair pour le dosage
+    dosage_info = ""
+    if ";" in dosage:
+        dosage_parts = dosage.split(";")
+        dosage_info = "Posologie recommandée (en grammes de plante séchée par litre d'eau):\n"
+        for part in dosage_parts:
+            if ":" in part:
+                plante, quantite = part.split(":", 1)
+                plante = plante.strip()
+                quantite = quantite.strip()
+                if quantite and quantite.lower() != "null":
+                    dosage_info += f"- {plante}: {quantite}g\n"
+                else:
+                    dosage_info += f"- {plante}: quantité standard (1 poignée ou 20-30g)\n"
+            else:
+                part = part.strip()
+                if part and part.lower() != "null":
+                    dosage_info += f"- {part}\n"
+    else:
+        if dosage and dosage.lower() != "null":
+            dosage_info = f"Dosage recommandé: {dosage}"
         else:
-            print("LLM HuggingFace non disponible, utilisation du fallback")
-            raise Exception("LLM non disponible")
-        
-    except Exception as e:
-        print(f"Erreur lors de la génération avec HuggingFace: {e}")
-        print("Génération d'une réponse de fallback structurée...")
-        
-        # Créer des sections de secours structurées directement
-        sections = create_fallback_sections_hf(symptoms, plant_names, pathologies, preparation, dosage, partie_utilisee, contre_indications, composants)
-        explanation = f"{sections['diagnostic']}\n\n{sections['symptomes']}\n\n{sections['presentation']}\n\n{sections['mode']}\n\n{sections['traitement']}\n\n{sections['precautions']}\n\n{sections['composants_text']}\n\n{sections['resume']}"
+            dosage_info = "Dosage recommandé: une poignée (environ 20-30g) de plante séchée dans un litre d'eau"
     
-    # Maintenant, retourner TOUS les champs structurés individuellement ET l'explication complète
-    # pour que le frontend puisse utiliser soit les champs structurés soit parser l'explication
-    result = {
+    # Formatter les parties de plantes utilisées avec une meilleure présentation
+    parties_info = ""
+    if ";" in partie_utilisee:
+        parties_parts = partie_utilisee.split(";")
+        parties_info = "Parties des plantes à utiliser:\n"
+        for part in parties_parts:
+            if ":" in part:
+                plante, partie = part.split(":", 1)
+                plante = plante.strip()
+                partie = partie.strip()
+                
+                # Ne pas afficher les NULL
+                if partie.lower() == "null":
+                    partie = "parties habituellement utilisées en phytothérapie"
+                    
+                # Traduire les parties en français
+                partie_fr = partie.lower()
+                if "root" in partie_fr:
+                    partie_fr = "racines"
+                elif "leaves" in partie_fr:
+                    partie_fr = "feuilles"
+                elif "bark" in partie_fr:
+                    partie_fr = "écorce"
+                elif "fruit" in partie_fr:
+                    partie_fr = "fruits"
+                elif "seed" in partie_fr:
+                    partie_fr = "graines"
+                elif "flower" in partie_fr:
+                    partie_fr = "fleurs"
+                elif "stem" in partie_fr:
+                    partie_fr = "tiges"
+                
+                parties_info += f"- {plante}: {partie_fr}\n"
+            else:
+                part = part.strip()
+                if part and part.lower() != "null":
+                    parties_info += f"- {part}\n"
+    else:
+        if partie_utilisee and partie_utilisee.lower() != "null":
+            parties_info = f"Parties utilisées: {partie_utilisee}"
+        else:
+            parties_info = "Parties utilisées: les parties habituellement employées en phytothérapie pour cette plante"
+    
+    # Formatter les précautions et contre-indications
+    precautions_info = contre_indications
+    if contre_indications:
+        # Traduire les contre-indications en français
+        precautions_info = contre_indications.lower()
+        precautions_info = precautions_info.replace("child under", "Enfants de moins de")
+        precautions_info = precautions_info.replace("gastric ulceration", "Ulcère gastrique")
+        precautions_info = precautions_info.replace("a mother who is producing milk and breastfeeding", "Femmes allaitantes")
+        precautions_info = precautions_info.replace("pregnancy", "Femmes enceintes")
+        precautions_info = precautions_info.replace(";", ", ")
+      # Mettre en majuscules la pathologie pour la mettre en évidence
+    pathologie_maj = pathologies.upper() if pathologies else "NON SPÉCIFIÉ"
+      # Générer une explication structurée même sans LLM
+
+    fallback_explanation = f"""
+    [AVERTISSEMENT] Diagnostic informatif (mode assistance)
+    
+    Notre système d'intelligence artificielle principal n'a pas pu analyser votre cas de manière approfondie. Les informations suivantes sont basées sur des correspondances générales dans notre base de données. D'après vos symptômes décrits: "{symptoms}", les données suggèrent qu'il pourrait s'agir de {pathologie_maj}. Cette évaluation n'est pas un diagnostic médical définitif. Cette condition requiert une attention particulière et un avis médical professionnel.
+
+    Symptômes associés
+    
+    Les symptômes typiquement associés au {pathologies} incluent: {symptomes_detailles}. Ces manifestations sont causées par la réaction du corps à l'infection ou au déséquilibre qu'il subit.
+    
+    Présentation de {plant_names}
+    
+    La plante {plant_names} est une espèce médicinale très valorisée dans la pharmacopée traditionnelle africaine. Elle est utilisée depuis des générations par les guérisseurs pour traiter diverses affections, particulièrement le {pathologies}. Son utilisation s'inscrit dans une longue tradition de médecine naturelle développée par les communautés locales.
+    
+    Mode d'action
+    
+    {mode_action} Cette plante agit progressivement et de façon naturelle pour rétablir l'équilibre du corps et renforcer ses défenses naturelles.
+    
+    Informations de traitement
+    
+    Préparation: {preparation}
+    
+    {dosage_info}
+    Pour une efficacité optimale, respectez précisément ce dosage. Ces quantités correspondent à la dose journalière pour un adulte, à diviser en 2-3 prises par jour.
+    
+    {parties_info}
+    Ces parties spécifiques contiennent la plus forte concentration de principes actifs thérapeutiques nécessaires au traitement.
+    
+    Précautions et contre-indications
+    
+    Pour votre sécurité, veuillez noter les contre-indications suivantes: {precautions_info}
+    
+    Ces précautions sont importantes car certains composés de la plante peuvent interagir avec d'autres médicaments ou aggraver certaines conditions médicales préexistantes. En cas de doute, consultez toujours un professionnel de santé.
+    
+    Composants actifs
+    
+    La plante {plant_names} contient des composants actifs naturels comme {composants[:100]}... qui agissent ensemble pour créer un effet thérapeutique synergique. Ces substances sont à l'origine de l'efficacité traditionnellement reconnue de cette plante.
+      Résumé de traitement
+    
+    Pour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour un traitement sûr et efficace.
+    """
+      # Extraction des variables de toute façon pour les utiliser dans l'explication
+    preparation = plant_data.get('recette', 'Préparation non spécifiée')
+    dosage = plant_data.get('plante_quantite_recette', 'Non spécifié')
+    parties_utilisees = plant_data.get('plante_partie_recette', 'Non spécifié')
+    contre_indications = f"{plant_data.get('recette_contreindication', '')} {plant_data.get('plante_contreindication', '')}"
+    composants = plant_data.get('plante_composantechimique', '')
+    
+    # Utiliser directement l'explication de secours pour éviter les problèmes avec l'API Hugging Face
+    print("Utilisation de l'explication de secours pour éviter les problèmes d'API")    # Créer les sections individuelles pour plus de clarté
+    diagnostic = f"Diagnostic possible\n\nAVERTISSEMENT: Je ne peux pas accéder au modèle d'IA principal pour le moment. D'après vos symptômes décrits: \"{symptoms}\", il est possible que vous souffriez de {pathologies.upper()}. Je ne suis pas en mesure de générer un diagnostic précis. Cette suggestion est basée uniquement sur des correspondances générales dans notre base de données et non sur une analyse médicale. Une consultation avec un professionnel de santé est fortement recommandée."
+    
+    symptomes = f"Symptômes associés\n\nLes symptômes typiquement associés au {pathologies} incluent: {symptomes_detailles}. Ces manifestations sont causées par l'action du parasite Plasmodium sur l'organisme."
+    
+    presentation = f"Présentation de {plant_names}\n\nLa plante {plant_names} est une espèce médicinale traditionnelle très valorisée dans la pharmacopée africaine. Les guérisseurs l'utilisent depuis des générations pour traiter diverses affections, particulièrement le {pathologies}."
+    
+    mode = f"Mode d'action\n\n{mode_action} Cette plante agit progressivement et de façon naturelle pour rétablir l'équilibre du corps."
+    
+    traitement = f"Informations de traitement\n\nPréparation: {preparation}\n\n{dosage_info}\nPour une efficacité optimale, respectez précisément ce dosage. Ces quantités correspondent à la dose journalière pour un adulte, à diviser en 2-3 prises.\n\n{parties_info}\nCes parties spécifiques contiennent la plus forte concentration de principes actifs nécessaires au traitement."
+    
+    precautions = f"Précautions et contre-indications\n\nPour votre sécurité, veuillez noter les contre-indications suivantes: {precautions_info}\n\nCes précautions sont importantes car certains composés de la plante peuvent interagir avec d'autres médicaments ou aggraver certaines conditions médicales préexistantes."
+    
+    composants_text = f"Composants actifs\n\nLa plante {plant_names} contient des composants actifs naturels comme {composants[:100]}... qui agissent ensemble pour créer un effet thérapeutique."
+    
+    resume = f"Résumé de traitement\n\nPour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions indiquées. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé."
+      # Combiner toutes les sections
+    explanation = f"{diagnostic}\n\n{symptomes}\n\n{presentation}\n\n{mode}\n\n{traitement}\n\n{precautions}\n\n{composants_text}\n\n{resume}"
+      # 🎯 PRIORITÉ: Utiliser LangChain avec le modèle Hugging Face
+    llm_success = False
+    try:
+        if chain is not None:
+            logger.info("🚀 PRIORITÉ: Tentative d'utilisation de LangChain avec le modèle Hugging Face...")
+            
+            # Formatter les données pour le prompt
+            plant_data_formatted = f"Plante: {plant_names}, Pathologies traitées: {pathologies}, Préparation: {preparation}, Dosage: {dosage}"
+            
+            logger.info(f"📝 Envoi du prompt à LangChain pour les symptômes: '{symptoms}'")
+            
+            # Appeler la chaîne LangChain
+            llm_response = chain.run({
+                "symptoms": symptoms,
+                "plant_data": plant_data_formatted,
+                "plant_name": plant_names,
+                "preparation": preparation,
+                "dosage": dosage,
+                "parties_utilisees": partie_utilisee,
+                "contre_indications": contre_indications,
+                "composants": composants            })
+            
+            logger.info(f"📨 Réponse reçue de LangChain (longueur: {len(llm_response) if llm_response else 0})")
+            
+            if llm_response and len(llm_response.strip()) > 50:  # Réduire le seuil pour accepter plus de réponses
+                logger.info("✅ Réponse LangChain acceptée et utilisée")
+                explanation = llm_response.strip()
+                llm_success = True
+            else:
+                logger.warning(f"⚠️ Réponse LangChain trop courte ({len(llm_response) if llm_response else 0} caractères), contenu: '{llm_response}'")
+        else:
+            logger.error("❌ LangChain non disponible - chain est None")
+            # Tenter de réinitialiser le LLM
+            logger.info("🔄 Tentative de réinitialisation du LLM...")
+            llm = initialize_llm()
+            if llm:
+                chain = LLMChain(llm=llm, prompt=prompt)
+                logger.info("🔧 LLM réinitialisé, nouvelle tentative...")
+                
+                # Nouvelle tentative après réinitialisation
+                plant_data_formatted = f"Plante: {plant_names}, Pathologies traitées: {pathologies}, Préparation: {preparation}, Dosage: {dosage}"
+                
+                llm_response = chain.run({
+                    "symptoms": symptoms,
+                    "plant_data": plant_data_formatted,
+                    "plant_name": plant_names,
+                    "preparation": preparation,
+                    "dosage": dosage,
+                    "parties_utilisees": partie_utilisee,
+                    "contre_indications": contre_indications,
+                    "composants": composants
+                })
+                
+                if llm_response and len(llm_response.strip()) > 50:
+                    logger.info("✅ Réponse LangChain acceptée après réinitialisation")
+                    explanation = llm_response.strip()
+                    llm_success = True
+                else:
+                    logger.warning(f"⚠️ Réponse toujours insuffisante après réinitialisation")
+                    
+    except Exception as e:
+        logger.error(f"❌ Erreur avec LangChain: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    # Fallback seulement si le LLM a échoué
+    if not llm_success:
+        logger.warning("⚠️ Utilisation du fallback car le LLM a échoué")
+    
+    return {
         "plant": plant_names,
         "dosage": dosage,
         "prep": preparation,
@@ -655,41 +740,17 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
         "contre_indications": contre_indications,
         "partie_utilisee": partie_utilisee,
         "composants": composants,
-        "nom_local": nom_local_info if nom_local_info else f"Nom local: {nom_local}" if nom_local else "",
-        
-        # NOUVEAU: Ajouter tous les champs structurés individuellement pour harmoniser avec le backend OpenAI
-        "diagnostic": sections.get('diagnostic', ''),
-        "symptomes": sections.get('symptomes', ''),
-        "presentation": sections.get('presentation', ''),
-        "mode_action": sections.get('mode', ''),
-        "traitement_info": sections.get('traitement', ''),
-        "precautions_info": sections.get('precautions', ''),
-        "composants_info": sections.get('composants_text', ''),
-        "resume_traitement": sections.get('resume', '')
+        "nom_local": nom_local_info if nom_local_info else f"Nom local: {nom_local}" if nom_local else ""
     }
-    
-    # Debug: Afficher ce qui est retourné    print("=== DEBUG HuggingFace get_recommendation ===")
-    print(f"Sections extraites: {list(sections.keys())}")
-    for field in ["diagnostic", "symptomes", "presentation", "mode_action"]:
-        if field in result:
-            print(f"{field}: {len(str(result[field]))} caractères")
-        else:
-            print(f"{field}: ABSENT")
-    print("=============================================")
-    
-    return result
 
 def generate_chat_response(prompt: str):
     """
-    Génère une réponse pour le mode discussion en utilisant soit HuggingFacePipeline (local),
-    soit l'API HuggingFace Inference (distant), soit un fallback en cas d'échec.
-    
-    Cette fonction tente d'abord d'utiliser le modèle LLM optimisé, puis fait un fallback
-    sur l'API HTTP directe et enfin sur des réponses prédéfinies si nécessaire.
+    Génère une réponse pour le mode discussion en utilisant directement l'API HuggingFace Inference.
+    Inclut un mécanisme de fallback en cas d'échec de l'API.
     """
-    global llm_chat
+    global llm, chain
     
-    logger.info(f"Mode discussion: Génération d'une réponse pour: '{prompt}'")
+    print(f"Mode discussion: Génération d'une réponse pour: '{prompt}'")
     
     # Template pour les discussions générales sur la phytothérapie africaine
     chat_template = """
@@ -699,8 +760,7 @@ def generate_chat_response(prompt: str):
     
     Question: {question}
     """
-    
-    # Dictionnaire de réponses de secours pour les mots-clés courants
+      # Dictionnaire de réponses de secours pour les mots-clés courants
     fallback_keywords = {
         "paludisme": "[⚠️ Mode assistance] Je n'ai pas pu réaliser une analyse complète de votre demande concernant le paludisme. Sans accès au modèle linguistique principal, il m'est impossible d'établir un diagnostic fiable. Le paludisme est une maladie grave nécessitant un avis médical professionnel. Certaines plantes comme la Cryptolepia sanguinolenta sont traditionnellement utilisées, mais uniquement comme complément au traitement médical. Pour explorer des options de phytothérapie, utilisez le mode Consultation tout en consultant un médecin.",
         "malaria": "[⚠️ Mode assistance] Je n'ai pas pu établir de diagnostic précis concernant votre question sur la malaria (paludisme). Cette infection grave requiert un diagnostic médical formel. Des plantes comme l'Artemisia annua sont utilisées traditionnellement, mais ne peuvent remplacer un traitement médical approprié. Pour des informations structurées sur ces plantes, utilisez le mode Consultation, mais consultez impérativement un médecin si vous suspectez cette maladie.",
@@ -712,48 +772,52 @@ def generate_chat_response(prompt: str):
         "stress": "[⚠️ Mode assistance] Je n'ai pas pu analyser les facteurs précis de votre stress, qui nécessitent une évaluation personnalisée. Des plantes comme le rooibos ou le basilic africain sont traditionnellement utilisées pour leurs propriétés apaisantes, mais leur pertinence dépend de votre situation spécifique. Pour des approches de phytothérapie plus détaillées et adaptées, je vous invite à utiliser le mode Consultation.",
         "peau": "[⚠️ Mode assistance] Je n'ai pas pu analyser précisément votre problème de peau, qui peut relever de nombreuses affections différentes. Sans diagnostic, je ne peux recommander un traitement spécifique. L'Aloe vera ou le Centella asiatica sont traditionnellement utilisés en phytothérapie africaine, mais leur pertinence dépend de la nature exacte de votre affection. Pour des informations plus adaptées, utilisez le mode Consultation."
     }
-    
-    # Réponse par défaut en cas d'échec
+      # Réponse par défaut en cas d'échec
     default_response = "[⚠️ Mode assistance] Je n'ai pas pu analyser votre demande de manière fiable. Sans accès au modèle linguistique principal, il m'est impossible de formuler une réponse précise sur votre question médicale. La phytothérapie africaine propose diverses plantes médicinales selon les symptômes spécifiques. Pour une approche plus structurée et prudente, je vous invite à décrire précisément vos symptômes via le mode Consultation. Toutefois, gardez à l'esprit que ces informations ne remplacent jamais l'avis d'un professionnel de santé qualifié."
-    
-    # Utilisations de réponses enrichies sur la phytothérapie africaine pour le fallback
+      # Utilisations de réponses enrichies sur la phytothérapie africaine pour le fallback
     phyto_responses = [
         "[⚠️ Mode assistance] Je n'ai pas pu analyser précisément votre demande. La phytothérapie africaine repose sur des traditions et connaissances ancestrales précieuses. Sans accès au modèle principal, je ne peux vous offrir qu'une information générale : des plantes comme le Moringa oleifera, l'Artemisia annua ou la Cryptolepia sanguinolenta sont utilisées pour diverses affections. Pour des recommandations plus précises tout en gardant la prudence médicale nécessaire, utilisez le mode Consultation.",
         "[⚠️ Mode assistance] Je n'ai pas pu traiter votre requête de manière optimale. En Afrique, le savoir sur les plantes médicinales est transmis de génération en génération, avec des plantes comme l'Acacia senegal ou le Tamarindus indica utilisées depuis des siècles. Sans accès au modèle principal, je ne peux proposer de traitement spécifique. Pour explorer des options de phytothérapie, utilisez le mode Consultation tout en consultant un professionnel de santé.",
-        "[⚠️ Mode assistance] Je n'ai pas pu analyser votre demande en profondeur. Les guérisseurs traditionnels africains possèdent un savoir immense sur les propriétés des plantes médicinales, incluant non seulement les plantes elles-mêmes mais aussi les méthodes de préparation qui optimisent leur efficacité. Sans accès au modèle principal, je vous invite à utiliser le mode Consultation pour des recommandations plus structurées, tout en consultant un professionnel de santé."    ]
-    
-    try:
-        # Étape 1: Essayer d'utiliser le modèle LLM optimisé
-        use_local = os.getenv("USE_LOCAL_MODEL", "False").lower() in ("true", "1", "t")
-        formatted_prompt = chat_template.replace("{question}", prompt)
-        
-        # Initialiser le modèle chat si ce n'est pas déjà fait
-        if llm_chat is None:
-            logger.info("Initialisation du modèle LLM pour le chat")
-            llm_chat = init_llm_model(use_local=use_local)
+        "[⚠️ Mode assistance] Je n'ai pas pu analyser votre demande en profondeur. Les guérisseurs traditionnels africains possèdent un savoir immense sur les propriétés des plantes médicinales, incluant non seulement les plantes elles-mêmes mais aussi les méthodes de préparation qui optimisent leur efficacité. Sans accès au modèle principal, je vous invite à utiliser le mode Consultation pour des recommandations plus structurées, tout en consultant un professionnel de santé."    ]      try:
+        # 🎯 PRIORITÉ: Utiliser LangChain avec le modèle Hugging Face pour le chat
+        if chain is not None:
+            logger.info("🚀 PRIORITÉ Chat: Tentative d'utilisation de LangChain...")
             
-        # Si le modèle est disponible, l'utiliser
-        if llm_chat is not None:
-            from langchain_core.prompts import PromptTemplate
-            chat_prompt = PromptTemplate(
-                template=chat_template,
-                input_variables=["question"]
-            )
+            # Créer un prompt simple pour le chat
+            chat_prompt = f"Tu es un expert en phytothérapie africaine. Réponds de manière concise et bienveillante à cette question: {prompt}"
             
-            chat_chain = LLMChain(llm=llm_chat, prompt=chat_prompt)
-            logger.info("Utilisation du modèle LLM pour générer une réponse")
-            response = chat_chain.run(question=prompt)
+            logger.info(f"📝 Envoi du prompt de chat à LangChain: '{chat_prompt[:100]}...'")
             
-            # Vérifier si la réponse est valide
-            if response and len(response.strip()) > 20:
-                logger.info(f"Réponse générée avec succès via LangChain (longueur: {len(response)})")
-                return response.strip()
-            logger.warning("Réponse du modèle LLM trop courte ou invalide")
+            # Utiliser la chaîne existante avec des paramètres adaptés au chat
+            llm_response = chain.llm.invoke(chat_prompt)
+            
+            logger.info(f"📨 Réponse chat reçue de LangChain (longueur: {len(llm_response) if llm_response else 0})")
+            
+            if llm_response and len(llm_response.strip()) > 20:
+                logger.info("✅ Réponse chat LangChain acceptée")
+                return llm_response.strip()
+            else:
+                logger.warning(f"⚠️ Réponse chat LangChain trop courte: '{llm_response}'")
         else:
-            logger.warning("Modèle LLM non disponible pour le chat")
+            logger.error("❌ LangChain non disponible pour le chat - chain est None")
+            # Tenter de réinitialiser
+            llm = initialize_llm()
+            if llm:
+                chain = LLMChain(llm=llm, prompt=prompt)
+                logger.info("🔧 LLM réinitialisé pour le chat, nouvelle tentative...")
+                
+                chat_prompt = f"Tu es un expert en phytothérapie africaine. Réponds de manière concise et bienveillante à cette question: {prompt}"
+                llm_response = chain.llm.invoke(chat_prompt)
+                
+                if llm_response and len(llm_response.strip()) > 20:
+                    logger.info("✅ Réponse chat acceptée après réinitialisation")
+                    return llm_response.strip()
         
-        # Étape 2: Fallback sur l'API HTTP directe
-        logger.info("Fallback: Utilisation de l'API HuggingFace via requête HTTP directe")
+        # Fallback : Utiliser la fonction generate_huggingface_response
+        logger.warning("⚠️ Passage au fallback API directe pour le chat")
+        formatted_prompt = chat_template.replace("{question}", prompt)
+        logger.info("🔄 Utilisation de l'API HuggingFace directement via requests...")
+        
         response = generate_huggingface_response(
             prompt=formatted_prompt,
             api_key=HF_API_KEY,
@@ -764,26 +828,35 @@ def generate_chat_response(prompt: str):
         
         # Vérifier si la réponse est valide
         if response and len(response.strip()) > 20:
-            logger.info(f"Réponse générée avec succès via API HTTP (longueur: {len(response)})")
+            print(f"Réponse API directe générée avec succès (longueur: {len(response)})")
             return response.strip()
-            
-        # Étape 3: Fallback sur les réponses prédéfinies
-        logger.warning("Réponse API trop courte ou vide, utilisation des fallbacks prédéfinis")
-        
-        # Vérifier si un mot clé est présent dans la requête
-        prompt_lower = prompt.lower()
-        for keyword, fallback_response in fallback_keywords.items():
-            if keyword in prompt_lower:
-                logger.info(f"Mot-clé '{keyword}' détecté, utilisation de la réponse spécifique")
-                return fallback_response
-        
-        # Si aucun mot-clé spécifique, retourner une réponse générique aléatoire
-        return random.choice(phyto_responses)
-        
+        else:
+            print("La réponse est vide ou trop courte, utilisation du fallback final")
     except Exception as e:
-        logger.error(f"Erreur lors de la génération de réponse chat: {str(e)}")
+        print(f"Erreur lors de l'appel aux modèles: {e}")
+        import traceback
         traceback.print_exc()
-        return random.choice(phyto_responses) if random.random() < 0.7 else default_response
+        print("Passage au fallback après erreur")
+        
+    # Fallback: recherche de mots-clés dans la question si l'API échoue
+    print("Utilisation du système de fallback basé sur les mots-clés")
+    prompt_lower = prompt.lower()
+    
+    # Vérifier les mots-clés spécifiques
+    for keyword, response in fallback_keywords.items():
+        if keyword in prompt_lower:
+            return response
+      # Si la question est une salutation ou générale
+    if any(word in prompt_lower for word in ["bonjour", "salut", "comment", "ca va", "ça va", "hello"]):
+        return "[⚠️ Mode assistance] Bonjour ! Je suis l'assistant aiBotanik, spécialiste en phytothérapie africaine. Actuellement, j'éprouve une difficulté technique qui limite l'accès à mes ressources d'IA. Cependant, je reste à votre disposition pour vous fournir des informations détaillées sur les plantes médicinales africaines ou pour vous orienter vers des recommandations personnalisées en mode Consultation."
+      # Si la question parle de plantes ou de traitement mais sans mot-clé spécifique
+    if any(word in prompt_lower for word in ["plante", "herbe", "traitement", "remède", "soigner", "traiter", "phyto", "médecine", "traditionnelle"]):
+        # Choisir une réponse enrichie aléatoirement
+        import random
+        return random.choice(phyto_responses)
+    
+    # Réponse générale si aucun mot-clé n'est trouvé
+    return default_response
 
 def clean_null_values(text):
     """
@@ -804,142 +877,3 @@ def clean_null_values(text):
         result = result.replace(old, new)
     
     return result
-
-# Fonction pour extraire les sections structurées (harmonisée avec OpenAI)
-def extract_sections_from_explanation(explanation):
-    """
-    Extrait les sections structurées d'une explication générée par le LLM Hugging Face
-    et les retourne sous forme de dictionnaire pour l'affichage individuel.
-    """
-    sections = {
-        "diagnostic": "",
-        "symptomes": "",
-        "presentation": "",
-        "mode": "",
-        "traitement": "",
-        "precautions": "",
-        "composants_text": "",
-        "resume": ""
-    }
-    
-    # Titres des sections à chercher (versions flexibles)
-    section_patterns = [
-        (["Diagnostic possible", "Diagnostic"], "diagnostic"),
-        (["Symptômes associés", "Symptômes"], "symptomes"),
-        (["Présentation de", "Présentation"], "presentation"),
-        (["Mode d'action", "Mode"], "mode"),
-        (["Informations de traitement", "Traitement", "Informations"], "traitement"),
-        (["Précautions et contre-indications", "Précautions", "Contre-indications"], "precautions"),
-        (["Composants actifs", "Composants"], "composants_text"),
-        (["Résumé de traitement", "Résumé"], "resume")
-    ]
-    
-    try:
-        # Diviser le texte en lignes pour faciliter l'analyse
-        lines = explanation.split('\n')
-        current_section = None
-        current_content = []
-        
-        for line in lines:
-            line_stripped = line.strip()
-            
-            # Vérifier si la ligne correspond à un titre de section
-            found_section = None
-            for patterns, key in section_patterns:
-                for pattern in patterns:
-                    # Recherche flexible : le titre peut apparaître au début de la ligne
-                    if line_stripped.startswith(pattern) or pattern in line_stripped:
-                        found_section = key
-                        break
-                if found_section:
-                    break
-            
-            if found_section:
-                # Sauvegarder la section précédente
-                if current_section and current_content:
-                    sections[current_section] = '\n'.join(current_content).strip()
-                
-                # Commencer une nouvelle section
-                current_section = found_section
-                current_content = []
-                
-                # Si la ligne contient du contenu après le titre, l'ajouter
-                for pattern in [p for patterns, k in section_patterns if k == found_section for p in patterns]:
-                    if line_stripped.startswith(pattern):
-                        remaining_text = line_stripped[len(pattern):].strip()
-                        if remaining_text and not remaining_text.startswith("(") and not remaining_text.startswith(":"):
-                            current_content.append(remaining_text)
-                        break
-                    
-            elif current_section and line_stripped:
-                # Ajouter à la section courante si ce n'est pas une ligne vide
-                current_content.append(line.strip())
-        
-        # Sauvegarder la dernière section
-        if current_section and current_content:
-            sections[current_section] = '\n'.join(current_content).strip()
-        
-        # Debug: afficher ce qui a été extrait
-        print("=== Extraction des sections HF ===")
-        for key, value in sections.items():
-            if value:
-                print(f"{key}: {len(value)} caractères")
-            else:
-                print(f"{key}: VIDE")
-        print("===================================")
-            
-    except Exception as e:
-        print(f"Erreur lors de l'extraction des sections: {e}")
-        # En cas d'erreur, mettre tout dans le diagnostic
-        sections["diagnostic"] = explanation
-    
-    return sections
-
-def create_fallback_sections_hf(symptoms, plant_names, pathologies, preparation, dosage, partie_utilisee, contre_indications, composants):
-    """
-    Crée des sections de secours structurées en cas d'échec du LLM Hugging Face
-    (identique à la fonction OpenAI pour harmonisation)
-    """
-    # Déterminer les symptômes typiques selon la pathologie
-    symptomes_mapping = {
-        "palud": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
-        "malaria": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
-        "diarrhée": "selles liquides fréquentes, crampes abdominales, déshydratation possible, faiblesse",
-        "dysenterie": "selles liquides sanglantes ou muqueuses, crampes abdominales sévères, fièvre",
-        "fièvre": "température corporelle élevée, frissons, maux de tête, fatigue, déshydratation",
-        "toux": "irritation de la gorge, expectorations, gêne respiratoire, douleurs thoraciques"
-    }
-    
-    symptomes_detailles = "symptômes variés selon les personnes"
-    for key, symptomes in symptomes_mapping.items():
-        if key.lower() in pathologies.lower():
-            symptomes_detailles = symptomes
-            break
-    
-    # Déterminer le mode d'action selon les parties utilisées
-    if "racin" in partie_utilisee.lower():
-        mode_action = "Les racines contiennent des principes actifs puissants qui agissent directement sur l'agent pathogène."
-    elif "feuill" in partie_utilisee.lower():
-        mode_action = "Les feuilles contiennent des composés qui agissent comme antipyrétiques et anti-inflammatoires."
-    elif "écorce" in partie_utilisee.lower() or "ecorce" in partie_utilisee.lower():
-        mode_action = "L'écorce renferme des alcaloïdes et des tanins aux propriétés antiparasitaires."
-    else:
-        mode_action = "La plante contient des composés qui agissent directement sur l'agent pathogène tout en renforçant le système immunitaire."
-    
-    return {
-        "diagnostic": f"AVERTISSEMENT: Je ne peux pas accéder au modèle d'IA principal pour le moment. D'après vos symptômes décrits: \"{symptoms}\", il est possible que vous souffriez de {pathologies.upper()}. Cette suggestion est basée uniquement sur des correspondances générales dans notre base de données et non sur une analyse médicale. Une consultation avec un professionnel de santé est fortement recommandée.",
-        
-        "symptomes": f"Les symptômes typiquement associés au {pathologies} incluent: {symptomes_detailles}. Ces manifestations sont causées par la réaction du corps à l'infection ou au déséquilibre qu'il subit.",
-        
-        "presentation": f"La plante {plant_names} est une espèce médicinale très valorisée dans la pharmacopée traditionnelle africaine. Elle est utilisée depuis des générations par les guérisseurs pour traiter diverses affections, particulièrement le {pathologies}. Son utilisation s'inscrit dans une longue tradition de médecine naturelle développée par les communautés locales.",
-        
-        "mode": f"{mode_action} Cette plante agit progressivement et de façon naturelle pour rétablir l'équilibre du corps et renforcer ses défenses naturelles.",
-        
-        "traitement": f"Préparation: {preparation}\n\nDosage: {dosage}\nPour une efficacité optimale, respectez précisément ce dosage. Ces quantités correspondent à la dose journalière pour un adulte, à diviser en 2-3 prises par jour.\n\nParties utilisées: {partie_utilisee}\nCes parties spécifiques contiennent la plus forte concentration de principes actifs thérapeutiques nécessaires au traitement.",
-        
-        "precautions": f"Pour votre sécurité, veuillez noter les contre-indications suivantes: {contre_indications}\n\nCes précautions sont importantes car certains composés de la plante peuvent interagir avec d'autres médicaments ou aggraver certaines conditions médicales préexistantes. En cas de doute, consultez toujours un professionnel de santé.",
-        
-        "composants_text": f"La plante {plant_names} contient des composants actifs naturels comme {composants[:100] if composants else 'composés traditionnels'}... qui agissent ensemble pour créer un effet thérapeutique synergique. Ces substances sont à l'origine de l'efficacité traditionnellement reconnue de cette plante.",
-        
-        "resume": f"Pour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions indiquées. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour un traitement sûr et efficace."
-    }

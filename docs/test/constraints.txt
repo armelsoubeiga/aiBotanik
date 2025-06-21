@@ -1,3 +1,0 @@
-# Fichier de contraintes pour gérer les conflits de dépendances
-# Fixe bcrypt à la version 3.2.0 pour compatibilité avec passlib 1.7.x
-bcrypt==3.2.0

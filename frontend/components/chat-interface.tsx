@@ -894,15 +894,13 @@ Comment puis-je vous aider ?`
       setIsLoading(true);
       
       try {
-        console.log("Envoi de la requête au backend en mode Discussion pour:", messageText);
-        
-        // Appel à l'API /chat pour le mode discussion
+        console.log("Envoi de la requête au backend en mode Discussion pour:", messageText);        // Appel à l'API /chat pour le mode discussion
         const response = await fetch("http://localhost:8000/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ symptoms: messageText }), // Réutilise la même structure de requête pour simplifier
+          body: JSON.stringify({ message: messageText }), // Utiliser 'message' comme attendu par le backend
           mode: "cors",
           cache: "no-cache",
         });

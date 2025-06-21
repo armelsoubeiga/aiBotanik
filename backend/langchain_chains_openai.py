@@ -64,11 +64,11 @@ Transforme cette liste de composants: "{composants}" en expliquant leurs effets 
 
 Résumé de traitement (synthèse des informations précédentes)
 Synthétise en 4-5 phrases le diagnostic et le traitement, incluant clairement:
-1. Le nom de la pathologie (en précisant qu'il s'agit d'une possibilité)
-2. La plante et sa préparation
-3. La posologie exacte (nombre de prises par jour, quantité)
+1. Le nom de la pathologie (en précisant qu'il s'agit d'une possibilité basée sur les symptômes)
+2. La plante principale et sa méthode de préparation
+3. La posologie exacte (dosage et nombre de prises par jour)
 4. La durée recommandée du traitement (7 jours par défaut si non spécifié)
-5. Quand consulter un professionnel (si les symptômes persistent après 3 jours)
+5. Quand consulter un professionnel de santé (si les symptômes persistent après 3 jours)
 
 EXIGENCES STRICTES:
 1. Chaque section DOIT être présente, avec son titre exact et dans l'ordre indiqué
@@ -77,15 +77,23 @@ EXIGENCES STRICTES:
 4. Ton langage doit être accessible et chaleureux, mais précis sur les dosages et précautions
 5. Réponds UNIQUEMENT en français, structure ta réponse avec des sauts de ligne entre les sections
 """
-prompt = PromptTemplate(input_variables=["symptoms", "plant_data", "plant_name"], template=template)
+prompt = PromptTemplate(
+    input_variables=[
+        "symptoms", "plant_name", "pathology", "preparation", "dosage", 
+        "parties_utilisees", "contre_indications_recette", "contre_indications_plante", "composants"
+    ], 
+    template=template
+)
 
 # Initialisation des modèles OpenAI de façon robuste
 try:
-    # Initialisation du modèle OpenAI pour la consultation
+    # Initialisation du modèle OpenAI pour la consultation avec gestion des timeouts
     llm = ChatOpenAI(
         model="gpt-3.5-turbo",
         temperature=0.7,
-        openai_api_key=OPENAI_API_KEY
+        openai_api_key=OPENAI_API_KEY,
+        request_timeout=30,  # Timeout de 30 secondes
+        max_retries=2,       # Retry jusqu'à 2 fois en cas d'échec
     )
 
     # Chaîne pour la consultation
@@ -96,7 +104,9 @@ try:
         model="gpt-3.5-turbo",
         temperature=0.7,
         max_tokens=500,
-        openai_api_key=OPENAI_API_KEY
+        openai_api_key=OPENAI_API_KEY,
+        request_timeout=30,  # Timeout de 30 secondes
+        max_retries=2,       # Retry jusqu'à 2 fois en cas d'échec
     )
     
     # Vérifier que les modèles sont correctement initialisés
@@ -218,6 +228,150 @@ def load_or_build_vectorstore(df, csv_path):
     except Exception as e:
         print(f"Erreur lors du chargement de l'index: {e}, reconstruction...")
         return build_and_save_vectorstore(df, csv_path)
+
+def extract_sections_from_explanation(explanation):
+    """
+    Extrait les sections structurées d'une explication générée par le LLM
+    et les retourne sous forme de dictionnaire pour l'affichage individuel.
+    """
+    sections = {
+        "diagnostic": "",
+        "symptomes": "",
+        "presentation": "",
+        "mode": "",
+        "traitement": "",
+        "precautions": "",
+        "composants_text": "",
+        "resume": ""
+    }
+    
+    # Titres des sections à chercher (versions flexibles)
+    section_patterns = [
+        (["Diagnostic possible", "Diagnostic"], "diagnostic"),
+        (["Symptômes associés", "Symptômes"], "symptomes"),
+        (["Présentation de", "Présentation"], "presentation"),
+        (["Mode d'action", "Mode"], "mode"),
+        (["Informations de traitement", "Traitement", "Informations"], "traitement"),
+        (["Précautions et contre-indications", "Précautions", "Contre-indications"], "precautions"),
+        (["Composants actifs", "Composants"], "composants_text"),
+        (["Résumé de traitement", "Résumé"], "resume")    ]
+    
+    try:
+        # Diviser le texte en lignes pour faciliter l'analyse
+        lines = explanation.split('\n')
+        current_section = None
+        current_content = []
+        
+        for line_idx, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # Si c'est la première ligne non vide et qu'elle commence par "D'après", c'est probablement le diagnostic
+            if line_idx == 0 and line_stripped and line_stripped.startswith("D'après"):
+                sections["diagnostic"] = line_stripped
+                continue
+            
+            # Vérifier si la ligne correspond à un titre de section
+            found_section = None
+            for patterns, key in section_patterns:
+                for pattern in patterns:
+                    # Recherche flexible : le titre peut apparaître au début de la ligne
+                    if line_stripped.startswith(pattern) or pattern in line_stripped:
+                        found_section = key
+                        break
+                if found_section:
+                    break
+            
+            if found_section:
+                # Sauvegarder la section précédente
+                if current_section and current_content:
+                    sections[current_section] = '\n'.join(current_content).strip()
+                
+                # Commencer une nouvelle section
+                current_section = found_section
+                current_content = []
+                
+                # Extraire le contenu qui suit le titre sur la même ligne
+                for pattern in [p for patterns, k in section_patterns if k == found_section for p in patterns]:
+                    if pattern in line_stripped:
+                        # Chercher le contenu après le titre et éventuellement ":"
+                        after_pattern = line_stripped.split(pattern, 1)[1].strip()
+                        if after_pattern.startswith(':'):
+                            after_pattern = after_pattern[1:].strip()
+                        if after_pattern:
+                            current_content.append(after_pattern)
+                        break
+                    
+            elif current_section and line_stripped:
+                # Ajouter à la section courante si ce n'est pas une ligne vide
+                current_content.append(line.strip())
+        
+        # Sauvegarder la dernière section
+        if current_section and current_content:
+            sections[current_section] = '\n'.join(current_content).strip()
+        
+        # Debug: afficher ce qui a été extrait
+        print("=== Extraction des sections ===")
+        for key, value in sections.items():
+            if value:
+                print(f"{key}: {len(value)} caractères")
+            else:
+                print(f"{key}: VIDE")
+        print("================================")
+            
+    except Exception as e:
+        print(f"Erreur lors de l'extraction des sections: {e}")
+        # En cas d'erreur, mettre tout dans le diagnostic
+        sections["diagnostic"] = explanation
+    
+    return sections
+
+def create_fallback_sections(symptoms, plant_names, pathologies, preparation, dosage, partie_utilisee, contre_indications, composants):
+    """
+    Crée des sections de secours structurées en cas d'échec du LLM
+    """
+    # Déterminer les symptômes typiques selon la pathologie
+    symptomes_mapping = {
+        "palud": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
+        "malaria": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
+        "diarrhée": "selles liquides fréquentes, crampes abdominales, déshydratation possible, faiblesse",
+        "dysenterie": "selles liquides sanglantes ou muqueuses, crampes abdominales sévères, fièvre",
+        "fièvre": "température corporelle élevée, frissons, maux de tête, fatigue, déshydratation",
+        "toux": "irritation de la gorge, expectorations, gêne respiratoire, douleurs thoraciques"
+    }
+    
+    symptomes_detailles = "symptômes variés selon les personnes"
+    for key, symptomes in symptomes_mapping.items():
+        if key.lower() in pathologies.lower():
+            symptomes_detailles = symptomes
+            break
+    
+    # Déterminer le mode d'action selon les parties utilisées
+    if "racin" in partie_utilisee.lower():
+        mode_action = "Les racines contiennent des principes actifs puissants qui agissent directement sur l'agent pathogène."
+    elif "feuill" in partie_utilisee.lower():
+        mode_action = "Les feuilles contiennent des composés qui agissent comme antipyrétiques et anti-inflammatoires."
+    elif "écorce" in partie_utilisee.lower() or "ecorce" in partie_utilisee.lower():
+        mode_action = "L'écorce renferme des alcaloïdes et des tanins aux propriétés antiparasitaires."
+    else:
+        mode_action = "La plante contient des composés qui agissent directement sur l'agent pathogène tout en renforçant le système immunitaire."
+    
+    return {
+        "diagnostic": f"AVERTISSEMENT: Je ne peux pas accéder au modèle d'IA principal pour le moment. D'après vos symptômes décrits: \"{symptoms}\", il est possible que vous souffriez de {pathologies.upper()}. Cette suggestion est basée uniquement sur des correspondances générales dans notre base de données et non sur une analyse médicale. Une consultation avec un professionnel de santé est fortement recommandée.",
+        
+        "symptomes": f"Les symptômes typiquement associés au {pathologies} incluent: {symptomes_detailles}. Ces manifestations sont causées par la réaction du corps à l'infection ou au déséquilibre qu'il subit.",
+        
+        "presentation": f"La plante {plant_names} est une espèce médicinale très valorisée dans la pharmacopée traditionnelle africaine. Elle est utilisée depuis des générations par les guérisseurs pour traiter diverses affections, particulièrement le {pathologies}. Son utilisation s'inscrit dans une longue tradition de médecine naturelle développée par les communautés locales.",
+        
+        "mode": f"{mode_action} Cette plante agit progressivement et de façon naturelle pour rétablir l'équilibre du corps et renforcer ses défenses naturelles.",
+        
+        "traitement": f"Préparation: {preparation}\n\nDosage: {dosage}\nPour une efficacité optimale, respectez précisément ce dosage. Ces quantités correspondent à la dose journalière pour un adulte, à diviser en 2-3 prises par jour.\n\nParties utilisées: {partie_utilisee}\nCes parties spécifiques contiennent la plus forte concentration de principes actifs thérapeutiques nécessaires au traitement.",
+        
+        "precautions": f"Pour votre sécurité, veuillez noter les contre-indications suivantes: {contre_indications}\n\nCes précautions sont importantes car certains composés de la plante peuvent interagir avec d'autres médicaments ou aggraver certaines conditions médicales préexistantes. En cas de doute, consultez toujours un professionnel de santé.",
+        
+        "composants_text": f"La plante {plant_names} contient des composants actifs naturels comme {composants[:100] if composants else 'composés traditionnels'}... qui agissent ensemble pour créer un effet thérapeutique synergique. Ces substances sont à l'origine de l'efficacité traditionnellement reconnue de cette plante.",
+        
+        "resume": f"Pour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions indiquées. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour un traitement sûr et efficace."
+    }
 
 # Fonction principale pour obtenir des recommandations
 def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
@@ -357,8 +511,7 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
             composants = "Composants chimiques spécifiques non disponibles actuellement"
     elif "NULL" in composants.upper():
         composants = "Composants chimiques spécifiques non disponibles actuellement"
-    
-    # Traitement des noms locaux pour un affichage plus compact
+      # Traitement des noms locaux pour un affichage plus compact
     nom_local_info = ""
     if nom_local and langue and pays:
         # Extraction des noms principaux
@@ -399,12 +552,12 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
                     plant_name = plant_name.strip()
                     local_name = local_name.strip()
                     
-                    if plant_name in main_plants:
+                    if plant_name in main_plants and "NULL" not in local_name.upper():
                         langue_nom = langues_raw[i].strip() if i < len(langues_raw) else ""
                         pays_nom = pays_raw[i].strip() if i < len(pays_raw) else ""
                         
                         if len(noms_locaux_simplifies[plant_name]) < 5:  # Limiter à 5 noms par plante
-                            if langue_nom and pays_nom:
+                            if langue_nom and pays_nom and "NULL" not in langue_nom.upper() and "NULL" not in pays_nom.upper():
                                 noms_locaux_simplifies[plant_name].append(f"{local_name} ({langue_nom}, {pays_nom})")
             
             # Formatage du texte final
@@ -412,38 +565,40 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
             for plant_name, noms in noms_locaux_simplifies.items():
                 if noms:
                     # Filtrer les noms contenant "NULL"
-                    noms_valides = [nom for nom in noms if "NULL" not in nom]
+                    noms_valides = [nom for nom in noms if "NULL" not in nom.upper()]
                     if noms_valides:
                         noms_text = ", ".join(noms_valides[:5])  # Limiter à 5 noms locaux par plante
                         plant_infos.append(f"{plant_name} est connue sous le nom de: {noms_text}")
             
             if plant_infos:
                 nom_local_info = "Noms locaux: " + ". ".join(plant_infos)
+            else:
+                nom_local_info = "Noms locaux non disponibles dans les données actuelles"
         else:
             # Cas simple: un seul nom local, vérifier qu'il n'est pas NULL
-            if "NULL" not in nom_local:
+            if "NULL" not in nom_local.upper():
                 nom_local_info = f"Nom local: {nom_local} en {langue} ({pays})."
             else:
-                nom_local_info = ""
+                nom_local_info = "Noms locaux non disponibles dans les données actuelles"
+    else:
+        nom_local_info = "Noms locaux non disponibles dans les données actuelles"
     
     # Extraire les pathologies traitées
     pathologies = plant.get('maladiesoigneeparrecette', 'Non spécifié')
     
     # Correction des pathologies en cas d'incohérence
-    # Corriger spécifiquement le cas où les symptômes contiennent "paludisme" mais 
-    # la pathologie renvoyée est autre chose que paludisme/malaria
     if "palud" in symptoms.lower() or "malaria" in symptoms.lower():
         if not ("palud" in pathologies.lower() or "malaria" in pathologies.lower()):
             print(f"Correction de la pathologie: {pathologies} -> paludisme (basé sur les symptômes)")
             pathologies = "paludisme"
     
-    # Utiliser GPT-3.5-Turbo pour générer une explication détaillée
+    # Utiliser GPT-3.5-Turbo pour générer une explication détaillée ET des sections structurées
     print("Utilisation de GPT-3.5-Turbo pour la génération d'explication enrichie...")
     
-    try:        # Extraction des variables pour les utiliser dans le prompt avec des mappings clairs vers les colonnes du CSV
+    try:        
+        # Extraction des variables pour les utiliser dans le prompt avec des mappings clairs vers les colonnes du CSV
         explanation = chain.run(
             symptoms=symptoms,
-            plant_data=plant_data,
             plant_name=plant_names,
             pathology=pathologies.strip(),  # De la colonne maladiesoigneeparrecette
             preparation=preparation,        # De la colonne recette
@@ -454,182 +609,20 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
             composants=composants           # De la colonne plante_composantechimique
         )
         print("Explication générée avec succès par GPT")
-          # Vérifier que toutes les sections sont présentes avec une validation plus stricte
-        required_sections = [
-            "Diagnostic possible", 
-            "Symptômes associés", 
-            "Présentation de", 
-            "Mode d'action", 
-            "Informations de traitement", 
-            "Précautions et contre-indications", 
-            "Composants actifs", 
-            "Résumé de traitement"
-        ]
         
-        # Vérification approfondie des sections et de leur contenu
-        missing_sections = [section for section in required_sections if section not in explanation]
-        if missing_sections:
-            print(f"Sections manquantes dans la réponse OpenAI: {missing_sections}")
-            raise ValueError(f"Réponse OpenAI incomplète, sections manquantes: {missing_sections}")
-        
-        # Validation de contenu supplémentaire
-        content_validations = [
-            (f"D'après vos symptômes décrits, il est possible que vous souffriez de {pathologies}", "format de diagnostic incorrect"),
-            (f"{pathologies.upper()}", "pathologie non mise en majuscules"),
-            (f"{plant_names}", "nom de plante manquant"),
-            (f"{preparation[:15]}", "préparation non mentionnée"),
-            (f"{dosage[:10]}", "dosage non mentionné")
-        ]
-        
-        for text, error_msg in content_validations:
-            if text and text.strip() and text.strip().lower() not in explanation.lower():
-                print(f"Validation de contenu échouée: {error_msg}")
-                raise ValueError(f"Réponse OpenAI insuffisante: {error_msg}")
-        
-        # Nettoyer et formater l'explication pour correspondre au format attendu
-        explanation = explanation.strip()
+        # Maintenant, extraire les sections de l'explication pour créer des champs structurés individuels
+        sections = extract_sections_from_explanation(explanation)
         
     except Exception as e:
-        print(f"Erreur lors de la génération de l'explication avec GPT: {e}")
-        import traceback
-        traceback.print_exc()
-          # Créer une explication de secours améliorée et structurée avec une mise en forme identique
-        # Préparation des symptômes typiques selon la pathologie
-        symptomes_mapping = {
-            "palud": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
-            "malaria": "fièvre intermittente, frissons, maux de tête, fatigue, douleurs musculaires et articulaires",
-            "diarrhée": "selles liquides fréquentes, crampes abdominales, déshydratation possible, faiblesse",
-            "dysenterie": "selles liquides sanglantes ou muqueuses, crampes abdominales sévères, fièvre",
-            "fièvre": "température corporelle élevée, frissons, maux de tête, fatigue, déshydratation",
-            "toux": "irritation de la gorge, expectorations, gêne respiratoire, douleurs thoraciques"
-        }
-        
-        # Déterminer les symptômes typiques selon la pathologie
-        symptomes_detailles = "symptômes variés selon les personnes"
-        for key, symptomes in symptomes_mapping.items():
-            if key.lower() in pathologies.lower():
-                symptomes_detailles = symptomes
-                break
-        
-        # Déterminer les parties des plantes utilisées pour le mode d'action
-        if "racin" in partie_utilisee.lower():
-            mode_action = "Les racines contiennent des principes actifs puissants qui agissent directement sur l'agent pathogène."
-        elif "feuill" in partie_utilisee.lower():
-            mode_action = "Les feuilles contiennent des composés qui agissent comme antipyrétiques et anti-inflammatoires."
-        elif "écorce" in partie_utilisee.lower() or "ecorce" in partie_utilisee.lower():
-            mode_action = "L'écorce renferme des alcaloïdes et des tanins aux propriétés antiparasitaires."
-        else:
-            mode_action = "La plante contient des composés qui agissent directement sur l'agent pathogène tout en renforçant le système immunitaire."
-        
-        # Format plus clair pour le dosage
-        dosage_info = ""
-        if ";" in dosage:
-            dosage_parts = dosage.split(";")
-            dosage_info = "Posologie recommandée (en grammes de plante séchée par litre d'eau):\n"
-            for part in dosage_parts:
-                if ":" in part:
-                    plante, quantite = part.split(":", 1)
-                    plante = plante.strip()
-                    quantite = quantite.strip()
-                    if quantite and quantite.lower() != "null":
-                        dosage_info += f"- {plante}: {quantite}g\n"
-                    else:
-                        dosage_info += f"- {plante}: quantité standard (1 poignée ou 20-30g)\n"
-                else:
-                    part = part.strip()
-                    if part and part.lower() != "null":
-                        dosage_info += f"- {part}\n"
-        else:
-            if dosage and dosage.lower() != "null":
-                dosage_info = f"Dosage recommandé: {dosage}"
-            else:
-                dosage_info = "Dosage recommandé: une poignée (environ 20-30g) de plante séchée dans un litre d'eau"
-        
-        # Formatter les parties de plantes utilisées avec une meilleure présentation
-        parties_info = ""
-        if ";" in partie_utilisee:
-            parties_parts = partie_utilisee.split(";")
-            parties_info = "Parties des plantes à utiliser:\n"
-            for part in parties_parts:
-                if ":" in part:
-                    plante, partie = part.split(":", 1)
-                    plante = plante.strip()
-                    partie = partie.strip()
-                    
-                    # Ne pas afficher les NULL
-                    if partie.lower() == "null":
-                        partie = "parties habituellement utilisées en phytothérapie"
-                        
-                    # Traduire les parties en français
-                    partie_fr = partie.lower()
-                    if "root" in partie_fr:
-                        partie_fr = "racines"
-                    elif "leaves" in partie_fr:
-                        partie_fr = "feuilles"
-                    elif "bark" in partie_fr:
-                        partie_fr = "écorce"
-                    elif "fruit" in partie_fr:
-                        partie_fr = "fruits"
-                    elif "seed" in partie_fr:
-                        partie_fr = "graines"
-                    elif "flower" in partie_fr:
-                        partie_fr = "fleurs"
-                    elif "stem" in partie_fr:
-                        partie_fr = "tiges"
-                    
-                    parties_info += f"- {plante}: {partie_fr}\n"
-                else:
-                    part = part.strip()
-                    if part and part.lower() != "null":
-                        parties_info += f"- {part}\n"
-        else:
-            if partie_utilisee and partie_utilisee.lower() != "null":
-                parties_info = f"Parties utilisées: {partie_utilisee}"
-            else:
-                parties_info = "Parties utilisées: les parties habituellement employées en phytothérapie pour cette plante"
-        
-        # Préparer les précautions
-        precautions_info = contre_indications if contre_indications else "Évitez l'usage chez les femmes enceintes ou allaitantes, les jeunes enfants et en cas de problèmes hépatiques ou rénaux connus."
-          # Explication de secours structurée et complète avec avertissement explicite
-        explanation = f"""⚠️ Diagnostic informatif (mode assistance)
-
-Notre système d'intelligence artificielle principal n'a pas pu analyser votre cas de manière approfondie. Les informations suivantes sont basées sur des correspondances générales dans notre base de données. D'après vos symptômes décrits: "{symptoms}", les données suggèrent qu'il pourrait s'agir de {pathologies.upper()}. Cette évaluation n'est pas un diagnostic médical définitif. Cette condition requiert une attention particulière et un avis médical professionnel.
-
-Symptômes associés
-
-Cette pathologie se manifeste généralement par {symptomes_detailles}. Ces symptômes apparaissent en réaction à l'infection ou au déséquilibre que subit l'organisme et nécessitent un traitement adapté.
-
-Présentation de {plant_names}
-
-La plante {plant_names} est une espèce médicinale précieuse dans la pharmacopée traditionnelle africaine. Utilisée depuis des générations par les guérisseurs locaux, elle est reconnue pour ses propriétés thérapeutiques particulièrement efficaces contre {pathologies}. Son usage est ancré dans les traditions ancestrales et continue d'être valorisé pour ses bienfaits.
-
-Mode d'action
-
-{mode_action} Les principes actifs naturels de cette plante agissent en synergie pour combattre les symptômes et restaurer l'équilibre du corps. Cette approche traditionnelle s'avère efficace pour soulager les manifestations de la maladie.
-
-Informations de traitement
-
-Préparation: {preparation}
-
-{dosage_info} Pour une efficacité optimale, respectez ce dosage précisément. Ces quantités correspondent à la dose journaliire pour un adulte, à diviser en 2-3 prises, idéalement après les repas pour limiter l'irritation gastrique.
-
-{parties_info} Ces parties spécifiques contiennent la plus forte concentration de principes actifs thérapeutiques nécessaires pour traiter efficacement la pathologie concernée.
-
-Précautions et contre-indications
-
-Pour votre sécurité, veuillez noter les contre-indications suivantes: {precautions_info}
-
-Ces précautions sont importantes car certains composés de la plante peuvent interagir avec d'autres médicaments ou aggraver certaines conditions médicales préexistantes. En cas de doute, consultez un professionnel de santé avant utilisation.
-
-Composants actifs
-
-La plante {plant_names} contient des composants actifs naturels comme {composants[:150]}... qui travaillent ensemble pour créer un effet thérapeutique synergique. Ces substances sont responsables de l'efficacité traditionnellement reconnue de cette plante contre les symptômes décrits.
-
-Résumé de traitement
-
-Pour traiter {pathologies.upper()}, préparez une décoction de {plant_names} selon les instructions détaillées. Prenez la dose recommandée de {dosage} 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour garantir un traitement sûr et efficace."""
+        print(f"Erreur lors de la génération avec OpenAI: {e}")
+        print("Génération d'une réponse de fallback...")
+          # Créer des sections de secours structurées directement
+        sections = create_fallback_sections(symptoms, plant_names, pathologies, preparation, dosage, partie_utilisee, contre_indications, composants)
+        explanation = f"{sections['diagnostic']}\n\n{sections['symptomes']}\n\n{sections['presentation']}\n\n{sections['mode']}\n\n{sections['traitement']}\n\n{sections['precautions']}\n\n{sections['composants_text']}\n\n{sections['resume']}"
     
-    return {
+    # Maintenant, retourner TOUS les champs structurés individuellement ET l'explication complète
+    # pour que le frontend puisse utiliser soit les champs structurés soit parser l'explication
+    result = {
         "plant": plant_names,
         "dosage": dosage,
         "prep": preparation,
@@ -638,86 +631,81 @@ Pour traiter {pathologies.upper()}, préparez une décoction de {plant_names} se
         "contre_indications": contre_indications,
         "partie_utilisee": partie_utilisee,
         "composants": composants,
-        "nom_local": nom_local_info if nom_local_info else f"Nom local: {nom_local}" if nom_local else ""
+        "nom_local": nom_local_info if nom_local_info else f"Nom local: {nom_local}" if nom_local else "",
+        
+        # NOUVEAU: Ajouter tous les champs structurés individuellement pour l'affichage frontend
+        "diagnostic": sections.get('diagnostic', ''),
+        "symptomes": sections.get('symptomes', ''),
+        "presentation": sections.get('presentation', ''),
+        "mode_action": sections.get('mode', ''),
+        "traitement_info": sections.get('traitement', ''),
+        "precautions_info": sections.get('precautions', ''),
+        "composants_info": sections.get('composants_text', ''),
+        "resume_traitement": sections.get('resume', '')
     }
+    
+    # Debug: Afficher ce qui est retourné
+    print("=== DEBUG OpenAI get_recommendation ===")
+    print(f"Sections extraites: {list(sections.keys())}")
+    for field in ["diagnostic", "symptomes", "presentation", "mode_action"]:
+        if field in result:
+            print(f"{field}: {len(str(result[field]))} caractères")
+        else:
+            print(f"{field}: ABSENT")
+    print("====================================")
+    
+    return result
 
 def generate_chat_response(prompt: str):
     """
-    Génère une réponse pour le mode discussion en utilisant GPT-3.5-Turbo.
+    Génère une réponse pour le mode discussion en utilisant OpenAI GPT-3.5-Turbo.
+    
+    Cette fonction utilise un modèle OpenAI spécialement configuré pour les discussions générales
+    sur la phytothérapie africaine, avec des réponses concises et sécurisées.
     """
-    print(f"Mode discussion: Génération d'une réponse avec GPT-3.5-Turbo pour: '{prompt}'")
+    print(f"Mode discussion (OpenAI): Génération d'une réponse pour: '{prompt}'")
     
     # Template pour les discussions générales sur la phytothérapie africaine
     chat_template = """
     Tu es un expert en phytothérapie africaine avec une approche très humaine et pédagogique.
-    Réponds à la question suivante de manière concise (maximum 6-8 phrases), informative et bienveillante.
-    Privilégie toujours la sécurité du patient et l'exactitude des informations.
-    
-    Si la question concerne un traitement spécifique ou des symptômes particuliers, suggère poliment de passer en mode Consultation pour obtenir une recommandation plus détaillée et personnalisée.
-    
-    Sois chaleureux et empathique, mais surtout précis et informatif.
-    Ton message doit être clair et compréhensible pour quelqu'un sans connaissances médicales.
+    Réponds à la question suivante de manière concise, informative et bienveillante, en privilégiant
+    toujours la sécurité du patient et l'exactitude des informations. Si la question concerne un traitement spécifique ou des symptômes particuliers, suggère poliment de passer en mode Consultation pour obtenir une recommandation plus détaillée et personnalisée.
     
     Question: {question}
     
-    Réponse: 
+    Réponds en français avec un ton chaleureux et professionnel. Maximum 200 mots.
     """
-    # Utilise le modèle global llm_chat défini précédemment
-    global llm_chat
     
-    # Vérifier si le modèle est correctement initialisé
-    if not llm_chat:
-        error_message = "Modèle OpenAI non initialisé correctement. Vérifiez votre clé API."
-        print(error_message)
-        raise ValueError(error_message)
+    # Dictionnaire de réponses de secours pour les mots-clés courants
+    fallback_responses = {
+        "bonjour": "Bonjour ! Je suis là pour vous accompagner dans vos questions sur la phytothérapie africaine. Comment puis-je vous aider aujourd'hui ?",
+        "salut": "Salut ! Comment allez-vous ? Je suis disponible pour répondre à vos questions sur les plantes médicinales africaines.",
+        "merci": "Je vous en prie ! C'est un plaisir de vous aider dans votre découverte des remèdes traditionnels africains.",
+        "aide": "Je peux vous renseigner sur les plantes médicinales africaines, leurs usages traditionnels et leurs propriétés. Pour des conseils spécifiques à vos symptômes, utilisez le mode Consultation.",
+        "comment": "Pour obtenir des conseils personnalisés selon vos symptômes, je vous recommande d'utiliser le mode Consultation. Pour des questions générales, je suis là pour vous aider !",
+        "default": "C'est une excellente question sur la phytothérapie africaine ! Pour des conseils spécifiques adaptés à vos besoins, je vous encourage à utiliser le mode Consultation. Sinon, n'hésitez pas à me poser d'autres questions générales."
+    }
     
     try:
-        # Vérifier que la clé API est présente
-        if not OPENAI_API_KEY:
-            raise ValueError("La clé API OpenAI n'est pas configurée")
-            
-        # Créer et exécuter la chaîne
-        chat_prompt = PromptTemplate(
-            template=chat_template,
-            input_variables=["question"]
-        )
+        # Vérifier si le modèle OpenAI est disponible
+        if llm_chat is None:
+            raise ValueError("Modèle OpenAI non initialisé")
         
-        # Définition de timeouts explicites pour éviter les blocages
-        chat_chain = LLMChain(
-            llm=llm_chat,
-            prompt=chat_prompt,
-            verbose=True  # Pour obtenir plus d'informations sur le processus
-        )
+        # Utiliser le modèle OpenAI pour générer une réponse
+        response = llm_chat.predict(chat_template.format(question=prompt))
         
-        # Exécution avec gestion de timeout
-        response = chat_chain.run(question=prompt)
-        
-        # Vérifier que la réponse est valide
-        if not response or len(response.strip()) < 10:
-            raise ValueError("La réponse générée est trop courte ou vide")
-            
         print("Réponse générée avec succès par GPT")
         return response.strip()
         
     except Exception as e:
-        print(f"Erreur lors de la génération de la réponse avec GPT: {e}")
-        import traceback
-        traceback.print_exc()
-          # Dictionnaire de réponses de secours pour les mots-clés courants avec un avertissement clair
-        fallback_keywords = {
-            "paludisme": "[⚠️ Mode assistance] Je n'ai pas pu réaliser une analyse complète de votre demande. Il m'est impossible de formuler un diagnostic fiable concernant le paludisme, qui est une maladie grave nécessitant un diagnostic médical professionnel. Bien que des plantes comme la Cryptolepia sanguinolenta soient traditionnellement utilisées, aucune recommandation ne peut remplacer l'avis d'un médecin. Si vous pensez souffrir de paludisme, consultez immédiatement un professionnel de santé. Pour explorer des options de phytothérapie complémentaires, utilisez le mode Consultation.",
-            "malaria": "[⚠️ Mode assistance] Je n'ai pas pu établir de diagnostic précis concernant votre demande sur la malaria (paludisme). Cette infection grave nécessite un diagnostic médical formel et je ne peux pas me substituer à l'expertise d'un professionnel de santé. Si vous recherchez des informations sur les plantes traditionnellement utilisées comme l'Artemisia annua, utilisez le mode Consultation, mais consultez impérativement un médecin en cas de suspicion de malaria.",
-            "fièvre": "[⚠️ Mode assistance] Je n'ai pas pu analyser correctement la cause de votre fièvre, ce symptôme pouvant être lié à de nombreuses pathologies différentes. Sans diagnostic médical, il serait imprudent de vous recommander un traitement spécifique. En phytothérapie africaine, certaines plantes comme le Nauclea latifolia sont traditionnellement utilisées pour soulager la fièvre, mais cela ne remplace pas un avis médical. Pour des recommandations plus précises tout en gardant cette prudence médicale, utilisez le mode Consultation.",
-            "toux": "[⚠️ Mode assistance] Je n'ai pas pu analyser la nature exacte de votre toux, qui peut être le symptôme de diverses affections respiratoires. Sans examen médical, il m'est impossible de déterminer sa cause et de proposer un traitement adapté. Si vous cherchez des informations sur les plantes traditionnellement utilisées comme l'Eucalyptus ou le gingembre en médecine africaine, utilisez le mode Consultation, mais gardez à l'esprit que ces suggestions ne peuvent remplacer l'avis d'un professionnel de santé."
-        }
+        print(f"Erreur lors de la génération avec OpenAI: {e}")
+        print("Utilisation d'une réponse de fallback...")
         
-        # Vérifier les mots-clés dans la question
+        # Recherche de mots-clés dans la question pour une réponse appropriée
         prompt_lower = prompt.lower()
-        for keyword, response_text in fallback_keywords.items():
+        for keyword, response in fallback_responses.items():
             if keyword in prompt_lower:
-                print(f"Utilisation de la réponse de secours pour le mot-clé: {keyword}")
-                return response_text
-          # Réponse générique de secours avec avertissement
-        fallback_response = "[⚠️ Mode assistance] Je n'ai pas pu traiter votre demande de manière fiable. Sans pouvoir accéder au modèle principal, il m'est impossible de formuler une réponse précise sur votre question médicale. En matière de phytothérapie africaine, particulièrement pour les questions liées à la santé, je dois faire preuve d'une extrême prudence. Je vous invite à utiliser le mode Consultation pour obtenir des informations plus structurées, tout en gardant à l'esprit que ces informations ne remplacent jamais l'avis d'un professionnel de santé qualifié. Pour tout problème de santé, consultez en priorité un médecin ou un spécialiste en médecine traditionnelle."
-        print("Utilisation de la réponse de secours générique")
-        return fallback_response
+                return response
+        
+        # Réponse par défaut si aucun mot-clé n'est trouvé
+        return fallback_responses["default"]

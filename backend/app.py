@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import datetime
 import json
+import requests
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 import traceback
@@ -91,9 +92,16 @@ def load_config():
 
 # Fonction pour sauvegarder la configuration
 def save_config(config):
+    global current_llm_backend
     try:
         with open(CONFIG_PATH, 'w') as f:
             json.dump(config, f)
+        
+        # Mettre à jour la variable globale si le backend LLM a changé
+        if "llm_backend" in config:
+            current_llm_backend = config["llm_backend"]
+            print(f"Backend LLM mis à jour vers: {current_llm_backend}")
+        
         return True
     except Exception as e:
         print(f"Erreur lors de la sauvegarde de la configuration: {e}")
@@ -110,14 +118,29 @@ def verify_openai_key(api_key):
     if not api_key or api_key.strip() == "":
         return False
     
+    # Vérification basique du format de la clé
+    if not api_key.startswith("sk-"):
+        return False
+        
     try:
         import openai
-        client = openai.OpenAI(api_key=api_key)
-        # Simple appel pour vérifier la validité de la clé
+        client = openai.OpenAI(api_key=api_key, timeout=10.0)
+        # Simple appel pour vérifier la validité de la clé avec timeout
         response = client.models.list()
         return True
-    except Exception as e:
-        print(f"Erreur lors de la vérification de la clé API OpenAI: {e}")
+    except openai.AuthenticationError:
+        print(f"Clé API OpenAI invalide")
+        return False
+    except openai.RateLimitError:
+        print(f"Limite de taux atteinte pour l'API OpenAI, mais la clé semble valide")
+        return True  # La clé est valide même si on a atteint la limite
+    except (openai.APIConnectionError, requests.exceptions.RequestException, Exception) as e:
+        print(f"Erreur de connexion lors de la vérification de la clé API OpenAI: {e}")
+        # En cas d'erreur réseau, on assume que la clé pourrait être valide
+        # si elle a le bon format
+        if api_key.startswith("sk-") and len(api_key) > 20:
+            print("Clé semble avoir le bon format, supposée valide malgré l'erreur réseau")
+            return True
         return False
 
 # Fonction pour charger le module approprié selon la configuration
@@ -152,11 +175,13 @@ def get_llm_module():
     try:
         import langchain_chains
         print("Module HuggingFace chargé avec succès")
-        
-        # Vérifier que la clé HuggingFace est configurée
-        if not os.getenv("HF_API_KEY"):
+          # Vérifier que la clé HuggingFace est configurée
+        hf_api_key = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_API_KEY")
+        if not hf_api_key:
             print("AVERTISSEMENT: Clé API HuggingFace non configurée dans .env")
             print("Certaines fonctionnalités peuvent ne pas fonctionner correctement")
+        else:
+            print("Clé API HuggingFace configurée avec succès")
             
         return langchain_chains
     except ImportError:
@@ -222,6 +247,9 @@ class NormalizedResponse(BaseModel):
 class RequestBody(BaseModel):
     symptoms: str
 
+class ChatRequestBody(BaseModel):
+    message: str
+
 class ResponseBody(NormalizedResponse):
     plant: str
     dosage: str
@@ -232,6 +260,15 @@ class ResponseBody(NormalizedResponse):
     partie_utilisee: str = ""
     composants: str = ""
     nom_local: str = ""
+    # Champs structurés pour l'affichage frontend
+    diagnostic: str = ""
+    symptomes: str = ""
+    presentation: str = ""
+    mode_action: str = ""
+    traitement_info: str = ""
+    precautions_info: str = ""
+    composants_info: str = ""
+    resume_traitement: str = ""
 
 class ConfigUpdateBody(BaseModel):
     llm_backend: Literal["huggingface", "openai"]
@@ -275,7 +312,7 @@ async def rebuild_index():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
-async def chat(body: RequestBody):
+async def chat(body: ChatRequestBody):
     """
     Endpoint pour répondre aux questions générales sur la phytothérapie en mode Discussion.
     Utilise un LLM pour générer des réponses dynamiques avec un fallback en cas d'échec.
@@ -285,7 +322,7 @@ async def chat(body: RequestBody):
         start_time = datetime.datetime.now()
         
         # Génération de la réponse en utilisant le module actif
-        result = llm_module.generate_chat_response(body.symptoms)
+        result = llm_module.generate_chat_response(body.message)
         
         # Normaliser le texte de la réponse pour éviter les problèmes d'encodage
         if result:
@@ -295,14 +332,12 @@ async def chat(body: RequestBody):
         elapsed_time = (datetime.datetime.now() - start_time).total_seconds()
         
         # Indiquer quel backend a été utilisé
-        backend_name = "OpenAI" if current_llm_backend == "openai" else "HuggingFace"
-        
-        # Structure de réponse améliorée
+        backend_name = "OpenAI" if current_llm_backend == "openai" else "HuggingFace"        # Structure de réponse améliorée
         return {
             "response": result,
             "timestamp": str(datetime.datetime.now()),
             "processing_time": elapsed_time,
-            "question": normalize_text(body.symptoms),  # Normaliser aussi la question
+            "question": normalize_text(body.message),  # Normaliser aussi la question
             "mode": "discussion",
             "status": "success",
             "backend": backend_name
@@ -424,11 +459,15 @@ async def get_llm_config():
     """
     Récupérer la configuration actuelle du backend LLM
     """
+    # Vérifier la présence de la clé HuggingFace (deux noms possibles)
+    hf_api_key = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_API_KEY")
+    
     return {
         "llm_backend": current_llm_backend,
+        "current_backend": current_llm_backend,  # Alias pour compatibilité
         "status": "success",
         "has_openai_key": bool(os.getenv("OPENAI_API_KEY")),
-        "has_hf_key": bool(os.getenv("HF_API_KEY"))
+        "has_hf_key": bool(hf_api_key)
     }
 
 # Inclure les routes d'authentification et de consultation
@@ -526,6 +565,5 @@ async def generic_exception_handler(request, exc):
         status_code=500,
         content={
             "detail": "Erreur interne du serveur",
-            "message": str(exc) if app.debug else "Une erreur s'est produite lors du traitement de votre requête"
-        }
+            "message": str(exc) if app.debug else "Une erreur s'est produite lors du traitement de votre requête"        }
     )
