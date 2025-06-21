@@ -84,7 +84,23 @@ def get_embeddings_model():
     """Charge le modèle d'embeddings seulement quand nécessaire (lazy loading)"""
     global _emb
     if _emb is None:
-        _emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        logger.info("Chargement du modèle all-MiniLM-L6-v2...")
+        start_time = time.time()
+        
+        # Optimisation pour Render : cache local
+        cache_dir = os.getenv("TRANSFORMERS_CACHE", "/opt/render/.cache/huggingface")
+        
+        _emb = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            cache_folder=cache_dir,
+            model_kwargs={
+                'device': 'cpu',  # Forcer CPU sur Render
+                'trust_remote_code': True
+            }
+        )
+        
+        load_time = time.time() - start_time
+        logger.info(f"Modèle chargé en {load_time:.2f}s")
     return _emb
 
 template = """
@@ -320,8 +336,11 @@ def load_or_build_vectorstore(df, csv_path):
         
         # 3. CSV inchangé, charger l'index existant
         logger.info("Index vectoriel existant et à jour, chargement...")
+        start_time = time.time()
         with open(VECTORSTORE_PATH, "rb") as f:
             vs = pickle.load(f)
+        load_time = time.time() - start_time
+        logger.info(f"✅ Index vectoriel chargé en {load_time:.2f}s")
         return vs
         
     except Exception as e:
@@ -801,3 +820,27 @@ def create_fallback_sections_hf(symptoms, plant_names, pathologies, preparation,
         
         "resume": f"Pour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions indiquées. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour un traitement sûr et efficace."
     }
+
+def initialize_models():
+    """Pré-charge les modèles au démarrage de l'application pour éviter les latences"""
+    try:
+        logger.info("Initialisation des modèles au démarrage...")
+        
+        # Pré-charger le modèle d'embeddings
+        emb = get_embeddings_model()
+        logger.info("✅ Modèle d'embeddings pré-chargé")
+        
+        # Test rapide pour vérifier que ça fonctionne
+        test_text = "test"
+        emb.embed_query(test_text)
+        logger.info("✅ Test d'embedding réussi")
+        
+        return True
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de l'initialisation des modèles: {e}")
+        return False
+
+# Initialiser les modèles au chargement du module (pour Render)
+if os.getenv("RENDER"):
+    logger.info("Environnement Render détecté, pré-chargement des modèles...")
+    initialize_models()
