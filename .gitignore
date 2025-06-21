@@ -61,6 +61,9 @@ backend/data/vector_metadata.pkl
 *.log
 *.tmp
 
+# Scripts de déploiement (garder start.sh pour Render)
+# start.sh
+
 # OS specific
 .DS_Store
 Thumbs.db
