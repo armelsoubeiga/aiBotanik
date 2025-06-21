@@ -2,8 +2,8 @@ services:
   - type: web
     name: aibotanik-backend
     env: python
-    buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && python -m uvicorn app:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python -m uvicorn app:app --host 0.0.0.0 --port $PORT --log-level info
     plan: free
     envVars:
       - key: PYTHON_VERSION
