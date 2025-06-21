@@ -1603,13 +1603,12 @@ Comment puis-je vous aider ?`
               {/* Utiliser un formulaire pour éviter les comportements de navigation par défaut */}
               <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
                 <div className="flex-1 relative">
-                  <div className="relative">
-                    {/* Boutons de mode intégrés dans le textarea */}
-                    <div className="absolute left-3 top-3 flex items-center gap-2 z-10">
+                  <div className="relative">                    {/* Boutons de mode intégrés dans le textarea */}
+                    <div className="absolute left-2 top-2 flex items-center gap-1 z-10">
                       <button
                         type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
                         onClick={() => setChatMode("discussion")}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium transition-all ${
                           chatMode === "discussion"
                             ? "bg-emerald-500 text-white shadow-sm"
                             : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -1621,7 +1620,7 @@ Comment puis-je vous aider ?`
                       <button
                         type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
                         onClick={() => setChatMode("consultation")}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium transition-all ${
                           chatMode === "consultation"
                             ? "bg-blue-500 text-white shadow-sm"
                             : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -1630,9 +1629,7 @@ Comment puis-je vous aider ?`
                         <Stethoscope className="h-3 w-3" />
                         Consultation
                       </button>
-                    </div>
-
-                    <Textarea
+                    </div><Textarea
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyPress={handleKeyPress}
@@ -1641,14 +1638,12 @@ Comment puis-je vous aider ?`
                           ? "Posez votre question sur la phytothérapie..."
                           : "Décrivez vos symptômes pour une consultation..."
                       }
-                      className="w-full min-h-[60px] pl-4 pr-12 pt-12 pb-3 resize-none border-emerald-200 focus:border-emerald-400 rounded-2xl"
-                    />
-
-                    <Button
+                      className="w-full min-h-[75px] pl-4 pr-9 pt-9 pb-3 resize-none border-emerald-200 focus:border-emerald-400 rounded-2xl"
+                    />                    <Button
                       type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
                       size="sm"
                       variant="ghost"
-                      className={`absolute right-12 bottom-2 ${isListening ? "text-red-500" : "text-emerald-600"}`}
+                      className={`absolute right-2 bottom-1 ${isListening ? "text-red-500" : "text-emerald-600"}`}
                       onClick={handleVoiceInput}
                     >
                       <Mic className="h-4 w-4" />

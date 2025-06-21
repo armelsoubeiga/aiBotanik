@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
 
 class MessageBase(BaseModel):
     content: str
@@ -20,16 +22,16 @@ class Message(MessageBase):
         from_attributes = True
 
 class ConsultationBase(BaseModel):
-    title: Optional[str] = Field(None, description="Titre de la consultation, généré automatiquement si absent")
-    type: Literal["discussion", "consultation"] = Field(default="discussion", description="Type de la consultation (discussion ou consultation)")
+    title: Optional[str] = Field(None, description="Titre de la consultation")
+    type: Literal["discussion", "consultation"] = Field(default="discussion", description="Type de consultation")
     
     class Config:
-        extra = "forbid"  # Interdit les champs supplémentaires non définis
+        extra = "forbid"
         
 class ConsultationCreate(ConsultationBase):
     messages: Optional[List[MessageBase]] = Field(
-        default_factory=list,  # Factory function pour éviter mutable default
-        description="Liste des messages initiaux de la consultation"
+        default_factory=list,
+        description="Messages initiaux de la consultation"
     )
     
     class Config:
@@ -46,22 +48,21 @@ class ConsultationCreate(ConsultationBase):
 
 class Consultation(ConsultationBase):
     id: str = Field(..., description="Identifiant unique de la consultation")
-    user_id: str = Field(..., description="Identifiant de l'utilisateur propriétaire")
-    date: datetime = Field(default_factory=lambda: datetime.utcnow(), description="Date de création de la consultation")
+    user_id: str = Field(..., description="Identifiant de l'utilisateur")
+    date: datetime = Field(default_factory=lambda: datetime.utcnow(), description="Date de création")
     summary: Optional[str] = Field(None, description="Résumé de la consultation")
-    messages_count: int = Field(default=0, description="Nombre de messages dans la consultation")
+    messages_count: int = Field(default=0, description="Nombre de messages")
     
     class Config:
         from_attributes = True
         json_encoders = {
-            datetime: lambda dt: dt.isoformat()  # Assurer un encodage JSON cohérent des dates
+            datetime: lambda dt: dt.isoformat()
         }
 
 class ConsultationWithMessages(Consultation):
     messages: List[Message] = []
 
 class ConversationMessageCreate(MessageBase):
-    # Pas de consultation_id car c'est pour les conversations unifiées
     pass
 
 class ConversationWithMessages(BaseModel):

@@ -1,5 +1,15 @@
-# Fichier d'environnement contenant les secrets
+# Fichiers d'environnement contenant les secrets
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/.env
+frontend/.env*
+
+# Configuration avec clés API
+config.json
+backend/config.json
 
 # Fichiers Python
 __pycache__/
@@ -27,6 +37,7 @@ var/
 venv/
 ENV/
 env/
+.venv/
 
 # Fichiers Node
 node_modules/
@@ -34,12 +45,21 @@ npm-debug.log
 yarn-error.log
 yarn-debug.log
 .pnpm-debug.log
+package-lock.json
+pnpm-lock.yaml
 
 # Distribution / packaging
 .next/
 out/
 build/
 dist/
+
+# Données sensibles et fichiers temporaires
+backend/data/faiss_index.pkl
+backend/data/vector_metadata.pkl
+*.pkl
+*.log
+*.tmp
 
 # OS specific
 .DS_Store

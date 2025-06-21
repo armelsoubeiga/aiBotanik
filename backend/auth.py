@@ -1,34 +1,31 @@
+import os
+import secrets
+import warnings
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from supabase_client import supabase, supabase_admin, safe_get_user_by_id, safe_get_user_by_email
-import secrets
-import os
-import warnings
 
-# Fix pour le problème de compatibilité bcrypt 4.x avec passlib 1.7.x
+from supabase_client import safe_get_user_by_email, safe_get_user_by_id
+
 import bcrypt as _bcrypt
 if not hasattr(_bcrypt, '__about__'):
-    # Créer un mock du module __about__ pour la compatibilité
     class MockAbout:
         __version__ = _bcrypt.__version__
     _bcrypt.__about__ = MockAbout()
 
-# Supprimer les avertissements bcrypt pour une sortie plus propre
 warnings.filterwarnings("ignore", message=".*trapped.*error reading bcrypt version.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="passlib")
 
 from passlib.context import CryptContext
 
-# Configuration de sécurité
-SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))  # Générere une clé par défaut si non définie
+SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 jours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
-# Pour le hashage des mots de passe - Configuration optimisée pour éviter les warnings
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
@@ -79,11 +76,11 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 def get_user(email: str) -> Optional[Dict[str, Any]]:
-    """Récupère un utilisateur depuis Supabase par son email"""
+    """Récupère un utilisateur par email"""
     return safe_get_user_by_email(email)
 
 def authenticate_user(email: str, password: str) -> Optional[Dict[str, Any]]:
-    """Authentifie un utilisateur avec email et mot de passe"""
+    """Authentifie un utilisateur"""
     user = get_user(email)
     if not user or not verify_password(password, user["hashed_password"]):
         return None

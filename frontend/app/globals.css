@@ -110,3 +110,34 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Masquer le badge Next.js Dev Tools */
+[data-nextjs-toast="true"],
+[data-next-badge-root="true"],
+[data-nextjs-dev-tools-button="true"] {
+  display: none !important;
+}
+
+/* Alternative : masquer tous les toasts Next.js */
+.nextjs-toast {
+  display: none !important;
+}
+
+/* Solution radicale : masquer tous les éléments avec z-index très élevé en bas à gauche */
+div[style*="z-index: 2147483647"][style*="bottom: 20px"][style*="left: 20px"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  left: -9999px !important;
+}
+
+/* Masquer les éléments Next.js Dev Tools par position */
+div[style*="bottom: 20px"][style*="left: 20px"] > div[data-nextjs-toast-wrapper="true"] {
+  display: none !important;
+}
+
+/* Masquer tout élément en position absolue avec ces caractéristiques */
+body > div[style*="position: fixed"][style*="bottom"][style*="left"][style*="z-index"] {
+  display: none !important;
+}
