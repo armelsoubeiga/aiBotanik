@@ -15,15 +15,15 @@ La configuration détecte automatiquement l'environnement basé sur :
    - API URL : `http://localhost:8000/api`
 
 2. **Production** : tous les autres cas
-   - Backend URL : `https://aibotanik-backend.onrender.com`
-   - API URL : `https://aibotanik-backend.onrender.com/api`
+   - Backend URL : `https://aibotanik.onrender.com`
+   - API URL : `https://aibotanik.onrender.com/api`
 
 ### Override manuel
 
 Vous pouvez forcer l'utilisation d'une URL spécifique en définissant la variable d'environnement :
 
 ```bash
-NEXT_PUBLIC_API_URL=https://mon-backend-custom.com
+NEXT_PUBLIC_API_URL=https://aibotanik.onrender.com
 ```
 
 ## Utilisation dans le code
@@ -48,7 +48,7 @@ fetch(`${BASE_URL}/chat`)
 ## Test en local
 
 1. **Backend en local** : Le frontend détecte automatiquement `localhost:8000`
-2. **Backend sur Render** : Définir `NEXT_PUBLIC_API_URL=https://aibotanik-backend.onrender.com`
+2. **Backend sur Render** : Définir `NEXT_PUBLIC_API_URL=https://aibotanik.onrender.com`
 
 ## Déploiement
 

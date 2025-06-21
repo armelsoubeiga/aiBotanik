@@ -4,6 +4,6 @@
   "installCommand": "npm install --legacy-peer-deps",
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_URL": "https://aibotanik-backend.onrender.com"
+    "NEXT_PUBLIC_API_URL": "https://aibotanik.onrender.com"
   }
 }
