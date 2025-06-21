@@ -16,8 +16,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
+# env files (keep .env.local for development)
+.env
+.env.development
+.env.production
+.env.test
+# But allow .env.local to be committed for deployment config
+# .env.local
 
 # vercel
 .vercel

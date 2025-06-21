@@ -1,15 +1,15 @@
 # Fichiers d'environnement contenant les secrets
 .env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
 backend/.env
-frontend/.env*
+# frontend/.env*  # Commenté pour permettre .env.local nécessaire à Vercel
 
-# Configuration avec clés API
-config.json
+# Configuration avec clés API (soyons plus spécifiques)
+# config.json  # Commenté - soyons plus spécifiques ci-dessous
 backend/config.json
+# Laissons passer frontend/components.json, next.config.mjs, etc.
 
 # Fichiers Python
 __pycache__/
@@ -24,8 +24,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python lib directories (but not frontend/lib)
+backend/lib/
+tests/lib/
 lib64/
+# lib/  # Commenté pour permettre frontend/lib
 parts/
 sdist/
 var/
