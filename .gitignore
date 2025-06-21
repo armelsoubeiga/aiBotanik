@@ -41,5 +41,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
-docs/projet_creation.ipynb
+docs/
+tests/integration
+tests/unit
 node_modules

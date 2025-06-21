@@ -77,7 +77,15 @@ else:
 VECTORSTORE_PATH = os.path.join("data", "faiss_index.pkl")
 METADATA_PATH = os.path.join("data", "vector_metadata.pkl")
 
-emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# Lazy loading du modèle d'embeddings (ne charge qu'à la première utilisation)
+_emb = None
+
+def get_embeddings_model():
+    """Charge le modèle d'embeddings seulement quand nécessaire (lazy loading)"""
+    global _emb
+    if _emb is None:
+        _emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return _emb
 
 template = """
 Tu es un expert en phytothérapie africaine avec une approche très humaine et pédagogique. Pour les symptômes décrits: {symptoms},
@@ -253,6 +261,7 @@ def build_and_save_vectorstore(df, csv_path):
     """Construit et sauvegarde l'index vectoriel"""
     try:
         documents = create_documents_from_df(df)
+        emb = get_embeddings_model()  # Lazy loading
         vs = FAISS.from_documents(documents, emb)
         
         os.makedirs(os.path.dirname(VECTORSTORE_PATH), exist_ok=True)
@@ -289,15 +298,34 @@ def should_rebuild_index(csv_path):
         return True
 
 def load_or_build_vectorstore(df, csv_path):
-    """Charge l'index vectoriel existant ou en crée un nouveau"""
-    if should_rebuild_index(csv_path):
+    """Charge l'index vectoriel existant ou en crée un nouveau seulement si nécessaire"""
+    
+    # 1. Si les fichiers n'existent pas, créer l'index
+    if not os.path.exists(VECTORSTORE_PATH) or not os.path.exists(METADATA_PATH):
+        logger.info("Index vectoriel introuvable, création d'un nouvel index...")
         return build_and_save_vectorstore(df, csv_path)
     
+    # 2. Vérifier si le CSV a changé depuis la dernière vectorisation
     try:
+        with open(METADATA_PATH, "rb") as f:
+            metadata = pickle.load(f)
+        
+        current_csv_mtime = get_csv_last_modified(csv_path)
+        last_indexed_mtime = metadata.get("last_modified", 0)
+        
+        # Si le CSV est plus récent que l'index, re-vectoriser
+        if current_csv_mtime > last_indexed_mtime:
+            logger.info(f"CSV modifié (mtime: {current_csv_mtime} > {last_indexed_mtime}), re-vectorisation...")
+            return build_and_save_vectorstore(df, csv_path)
+        
+        # 3. CSV inchangé, charger l'index existant
+        logger.info("Index vectoriel existant et à jour, chargement...")
         with open(VECTORSTORE_PATH, "rb") as f:
             vs = pickle.load(f)
         return vs
-    except Exception:
+        
+    except Exception as e:
+        logger.warning(f"Erreur lors du chargement des métadonnées: {e}, re-création de l'index...")
         return build_and_save_vectorstore(df, csv_path)
 
 # Fonction principale pour obtenir des recommandations
