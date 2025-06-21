@@ -4,12 +4,6 @@
 .env.test.local
 .env.production.local
 backend/.env
-# frontend/.env*  # Commenté pour permettre .env.local nécessaire à Vercel
-
-# Configuration avec clés API (soyons plus spécifiques)
-# config.json  # Commenté - soyons plus spécifiques ci-dessous
-backend/config.json
-# Laissons passer frontend/components.json, next.config.mjs, etc.
 
 # Fichiers Python
 __pycache__/
@@ -18,20 +12,12 @@ __pycache__/
 *.so
 .Python
 env/
-build/
-develop-eggs/
-dist/
-downloads/
 eggs/
 .eggs/
-# Python lib directories (but not frontend/lib)
-backend/lib/
 tests/lib/
 lib64/
-# lib/  # Commenté pour permettre frontend/lib
 parts/
 sdist/
-var/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -42,30 +28,8 @@ ENV/
 env/
 .venv/
 
-# Fichiers Node
-node_modules/
-npm-debug.log
-yarn-error.log
-yarn-debug.log
-.pnpm-debug.log
-package-lock.json
-pnpm-lock.yaml
 
-# Distribution / packaging
-.next/
-out/
-build/
-dist/
 
-# Données sensibles et fichiers temporaires
-backend/data/faiss_index.pkl
-backend/data/vector_metadata.pkl
-*.pkl
-*.log
-*.tmp
-
-# Scripts de déploiement (garder start.sh pour Render)
-# start.sh
 
 # OS specific
 .DS_Store
@@ -78,3 +42,4 @@ Thumbs.db
 *.swo
 *~
 docs/projet_creation.ipynb
+node_modules
