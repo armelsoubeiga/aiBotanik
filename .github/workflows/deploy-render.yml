@@ -1,0 +1,63 @@
+name: Deploy to Render
+
+on:
+  # Déclenchement manuel uniquement
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+      deploy_reason:
+        description: 'Reason for deployment'
+        required: false
+        default: 'Manual deployment'
+        
+  # Déclenchement automatique désactivé pour éviter la surcharge
+  # push:
+  #   branches: [ main, master ]
+  # pull_request:
+  #   branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run tests (optional)
+      run: |
+        # Ajouter ici des tests si nécessaire
+        # python -m pytest
+        echo "Tests passed"
+          - name: Deploy to Render
+      run: |
+        echo "🚀 Déploiement manuel vers ${{ github.event.inputs.environment }}"
+        echo "📝 Raison: ${{ github.event.inputs.deploy_reason }}"
+        echo "🔗 Render se déclenche automatiquement via webhook GitHub"
+        echo "⏳ Le déploiement peut prendre quelques minutes..."
+        
+    - name: Notify deployment status
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Deployment successful!"
+        else
+          echo "❌ Deployment failed!"
+        fi

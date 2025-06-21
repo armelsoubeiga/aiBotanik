@@ -371,6 +371,30 @@ async def get_llm_config():
         "has_hf_key": bool(hf_api_key)
     }
 
+@app.get("/health")
+async def health_check():
+    """Endpoint de vérification de santé pour le monitoring"""
+    return {
+        "status": "healthy",
+        "service": "aiBotanik API",
+        "version": "1.0.0",
+        "timestamp": str(datetime.datetime.now()),
+        "backend": current_llm_backend,
+        "database": "supabase",
+        "data_loaded": len(df) > 0
+    }
+
+@app.get("/")
+async def root():
+    """Page d'accueil de l'API"""
+    return {
+        "message": "Bienvenue sur aiBotanik API",
+        "description": "API de recommandation de phytothérapie africaine",
+        "docs": "/api/docs",
+        "health": "/health",
+        "version": "1.0.0"
+    }
+
 app.include_router(routes.router, prefix="/api")
 app.include_router(conversation_unified_routes.router)
 
