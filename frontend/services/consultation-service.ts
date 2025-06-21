@@ -1,6 +1,7 @@
 "use client";
 
 import { authService } from "./auth-service";
+import { API_URL, debugLog } from '@/lib/config';
 
 export interface Message {
   id?: string;
@@ -19,11 +20,8 @@ export interface Consultation {
   updated_at?: string;  // Ajout de updated_at
   summary?: string;
   messages?: Message[];
-  messages_count?: number;
-  user_id?: string;     // Ajout de user_id
+  messages_count?: number;  user_id?: string;     // Ajout de user_id
 }
-
-const API_URL = "http://localhost:8000/api";
 
 export class ConsultationService {
   private static instance: ConsultationService;

@@ -11,6 +11,8 @@ import { toast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { AlertCircle, Check, Info, Settings, Terminal, TerminalSquare } from "lucide-react";
+// Configuration des URLs backend
+import { API_URL, BASE_URL } from "@/lib/config";
 
 export default function AdminPage() {
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,7 @@ export default function AdminPage() {
 
   const fetchConfig = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/config/llm");
+      const response = await fetch(`${BASE_URL}/admin/config/llm`);
       
       if (response.ok) {
         const data = await response.json();
@@ -58,10 +60,8 @@ export default function AdminPage() {
   };
 
   const saveConfig = async () => {
-    setLoading(true);
-
-    try {
-      const payload = {
+    setLoading(true);    try {
+      const payload: any = {
         llm_backend: config.llm_backend,
       };
 
@@ -70,7 +70,7 @@ export default function AdminPage() {
         payload.api_key = openAIKey;
       }
 
-      const response = await fetch("http://localhost:8000/admin/config/llm", {
+      const response = await fetch(`${BASE_URL}/admin/config/llm`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -112,7 +112,7 @@ export default function AdminPage() {
     setRebuilding(true);
 
     try {
-      const response = await fetch("http://localhost:8000/admin/rebuild-index", {
+      const response = await fetch(`${BASE_URL}/admin/rebuild-index`, {
         method: "POST",
       });
 
@@ -147,7 +147,7 @@ export default function AdminPage() {
     setTestResponse("");
 
     try {
-      const response = await fetch("http://localhost:8000/chat", {
+      const response = await fetch(`${BASE_URL}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -170,10 +170,9 @@ export default function AdminPage() {
           description: "Le test a échoué",
           variant: "destructive",
         });
-      }
-    } catch (error) {
+      }    } catch (error) {
       console.error("Erreur lors du test du LLM:", error);
-      setTestResponse("ERREUR DE CONNEXION: " + error.message);
+      setTestResponse("ERREUR DE CONNEXION: " + (error as Error).message);
       toast({
         title: "Erreur de connexion",
         description: "Impossible de tester le LLM.",

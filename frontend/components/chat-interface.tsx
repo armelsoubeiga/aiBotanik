@@ -15,6 +15,8 @@ import type { Message as ServiceMessage, Consultation as ServiceConsultation } f
 // Import du service et helper pour les conversations unifiées
 import { conversationUnifiedService } from "@/services/conversation-unified-service"
 import { saveUnifiedConversation } from "@/services/conversation-unified-helper"
+// Configuration des URLs backend
+import { API_URL, BASE_URL } from "@/lib/config"
 
 interface ChatInterfaceProps {
   onBack?: () => void
@@ -348,7 +350,7 @@ Comment puis-je vous aider ?`
         console.log(`saveConversationBeforeLogout: Mise à jour de la consultation existante ${currentConsultation.id}`);
         
         // Appel direct à l'API pour la mise à jour
-        const response = await fetch(`http://localhost:8000/api/consultations/${currentConsultation.id}`, {
+        const response = await fetch(`${API_URL}/consultations/${currentConsultation.id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -372,11 +374,10 @@ Comment puis-je vous aider ?`
       // Sinon, créer une nouvelle consultation
       else {
         console.log("saveConversationBeforeLogout: Création d'une nouvelle consultation d'urgence");
-        
-        // Appel direct à l'API pour la création
+          // Appel direct à l'API pour la création
         console.log("saveConversationBeforeLogout: Envoi d'une requête de création de consultation avec", 
           messagesToSend.length, "messages et token:", token.substring(0, 15) + "...");
-        const response = await fetch("http://localhost:8000/api/consultations", {
+        const response = await fetch(`${API_URL}/consultations`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -803,10 +804,8 @@ Comment puis-je vous aider ?`
         // Vérifier si la requête est vide
         if (!messageText.trim()) {
           throw new Error("Veuillez décrire vos symptômes avant de demander une consultation");
-        }
-        
-        // Utiliser une URL absolue pour le backend
-        const response = await fetch("http://localhost:8000/recommend", {
+        }        // Utiliser l'URL configurée pour le backend
+        const response = await fetch(`${BASE_URL}/recommend`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -893,9 +892,8 @@ Comment puis-je vous aider ?`
       // Mode discussion - appel à l'API de chat
       setIsLoading(true);
       
-      try {
-        console.log("Envoi de la requête au backend en mode Discussion pour:", messageText);        // Appel à l'API /chat pour le mode discussion
-        const response = await fetch("http://localhost:8000/chat", {
+      try {        console.log("Envoi de la requête au backend en mode Discussion pour:", messageText);        // Appel à l'API /chat pour le mode discussion
+        const response = await fetch(`${BASE_URL}/chat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1322,9 +1320,8 @@ Comment puis-je vous aider ?`
                   sender: m.sender,
                   recommendation: m.recommendation ? JSON.parse(JSON.stringify(m.recommendation)) : undefined
                 }));
-                
-                // Envoi direct à l'API
-                const response = await fetch("http://localhost:8000/api/consultations", {
+                  // Envoi direct à l'API
+                const response = await fetch(`${API_URL}/consultations`, {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -1424,7 +1421,7 @@ Comment puis-je vous aider ?`
                   // Utiliser l'API conversations unifiées au lieu de l'API consultations
                   console.log(`Navigation - Sauvegarde du message ${message.sender} dans la conversation unifiée ${currentConsultation.id}`);
                   
-                  const response = await fetch(`http://localhost:8000/api/conversations/${currentConsultation.id}/messages`, {
+                  const response = await fetch(`${API_URL}/conversations/${currentConsultation.id}/messages`, {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",

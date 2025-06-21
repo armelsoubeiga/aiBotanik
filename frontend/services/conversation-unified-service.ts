@@ -1,6 +1,7 @@
 "use client";
 
 import { authService } from "./auth-service";
+import { API_URL, debugLog } from '@/lib/config';
 
 export interface UnifiedMessage {
   id?: string;
@@ -19,12 +20,9 @@ export interface UnifiedConversation {
   summary?: string;
   messages?: UnifiedMessage[];
   messages_count?: number;
-  user_id?: string;
-  chat_mode: "discussion" | "consultation";
+  user_id?: string;  chat_mode: "discussion" | "consultation";
   last_recommendation?: any;
 }
-
-const API_URL = "http://localhost:8000/api";
 
 /**
  * Service pour la gestion des conversations unifiées

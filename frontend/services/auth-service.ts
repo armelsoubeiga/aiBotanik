@@ -1,5 +1,7 @@
 "use client";
 
+import { API_URL, debugLog } from '@/lib/config';
+
 interface AuthToken {
   access_token: string;
   token_type: string;
@@ -21,13 +23,10 @@ interface PasswordChangeData {
   // Le mot de passe actuel n'est plus requis
 }
 
-export interface User {
-  id: string;
+export interface User {  id: string;
   email: string;
   name: string;
 }
-
-const API_URL = "http://localhost:8000/api";
 
 export class AuthService {
   private static instance: AuthService;
