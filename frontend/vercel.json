@@ -1,5 +1,10 @@
 {
   "env": {
     "NEXT_PUBLIC_API_URL": "https://aibotanik.onrender.com"
+  },
+  "functions": {
+    "app/**": {
+      "includeFiles": "components/**"
+    }
   }
 }
