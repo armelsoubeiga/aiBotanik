@@ -18,8 +18,7 @@
       {
         "name": "next"
       }
-    ],
-    "paths": {
+    ],    "paths": {
       "@/*": ["./*"],
       "@/components/*": ["components/*"],
       "@/lib/*": ["lib/*"],
