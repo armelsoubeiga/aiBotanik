@@ -54,10 +54,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Gestion CORS
+# Gestion CORS - URLs autorisées pour la production et le développement
+allowed_origins = [
+    # URLs de production Vercel
+    "https://aibotanik.vercel.app",
+    "https://aibotanik-gtm9um4f7-armelsoubeigas-projects.vercel.app",
+    # Développement local
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001"
+]
+
 app.add_middleware(
     CORSMiddleware,    
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Authorization"],
