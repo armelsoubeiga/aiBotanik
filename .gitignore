@@ -4,6 +4,8 @@
 .env.test.local
 .env.production.local
 backend/.env
+backend/data/*.pkl
+
 
 # Fichiers Python
 __pycache__/
@@ -45,3 +47,19 @@ docs/
 tests/integration
 tests/unit
 node_modules
+
+
+# === AJOUTS CRITIQUES ===
+frontend/.next/
+frontend/out/
+frontend/build/
+backend/config.json
+backend/logs/
+backend/*.log
+frontend/.env.local
+.pytest_cache/
+.coverage
+coverage/
+*.log
+.vercel/
+.netlify/

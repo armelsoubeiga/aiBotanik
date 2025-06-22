@@ -61,6 +61,8 @@ export function ChatInterface({
   const [userChooseContinueWithoutLogin, setUserChooseContinueWithoutLogin] = useState(false) // Nouvel état pour suivre si l'utilisateur a choisi de continuer sans connexion
   // Définir le mode discussion comme mode par défaut
   const [chatMode, setChatMode] = useState<"discussion" | "consultation">("discussion")
+  // Tracker les tentatives pour le système de fallback robuste
+  const [attemptCount, setAttemptCount] = useState(1)
 
   const welcomeText = `Bonjour ! Je suis aiBotanik, votre assistant spécialisé en phytothérapie africaine.
 
@@ -348,9 +350,8 @@ Comment puis-je vous aider ?`
       // Si nous avons déjà une consultation, mettre à jour avec les nouveaux messages
       if (currentConsultation && currentConsultation.id) {
         console.log(`saveConversationBeforeLogout: Mise à jour de la consultation existante ${currentConsultation.id}`);
-        
-        // Appel direct à l'API pour la mise à jour
-        const response = await fetch(`${API_URL}/consultations/${currentConsultation.id}`, {
+          // Appel direct à l'API pour la mise à jour
+        const response = await fetch(`${API_URL}/api/consultations/${currentConsultation.id}`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
@@ -372,12 +373,11 @@ Comment puis-je vous aider ?`
         return true;
       } 
       // Sinon, créer une nouvelle consultation
-      else {
-        console.log("saveConversationBeforeLogout: Création d'une nouvelle consultation d'urgence");
-          // Appel direct à l'API pour la création
+      else {        console.log("saveConversationBeforeLogout: Création d'une nouvelle consultation d'urgence");
+        // Appel direct à l'API pour la création
         console.log("saveConversationBeforeLogout: Envoi d'une requête de création de consultation avec", 
           messagesToSend.length, "messages et token:", token.substring(0, 15) + "...");
-        const response = await fetch(`${API_URL}/consultations`, {
+        const response = await fetch(`${API_URL}/api/consultations`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -810,7 +810,10 @@ Comment puis-je vous aider ?`
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ symptoms: messageText }),
+          body: JSON.stringify({ 
+            symptoms: messageText,
+            attempt_count: attemptCount 
+          }),
           // Ajouter mode CORS pour s'assurer que les requêtes sont bien envoyées
           mode: "cors",
           cache: "no-cache",
@@ -859,15 +862,29 @@ Comment puis-je vous aider ?`
         if (!recommendation.partie_utilisee) recommendation.partie_utilisee = "Diverses parties de la plante";
         if (!recommendation.composants) recommendation.composants = "Composants actifs à déterminer";
         if (!recommendation.nom_local) recommendation.nom_local = recommendation.plant || "Nom local non disponible";
+          console.log("Tous les champs requis ont été ajoutés à la recommandation pour garantir une restauration identique dans l'historique");
         
-        console.log("Tous les champs requis ont été ajoutés à la recommandation pour garantir une restauration identique dans l'historique");
+        // Gérer les indicateurs de fallback et incrémenter/réinitialiser le compteur de tentatives
+        if (recommendation.needs_more_details) {
+          // Première tentative sans correspondance - incrémenter pour la prochaine fois
+          setAttemptCount(prev => prev + 1);
+          console.log("Première tentative sans correspondance détectée, compteur incrémenté à:", attemptCount + 1);
+        } else if (recommendation.requires_consultation) {
+          // Deuxième tentative sans correspondance - réinitialiser le compteur pour une nouvelle conversation
+          setAttemptCount(1);
+          console.log("Deuxième tentative sans correspondance détectée, compteur réinitialisé à 1");
+        } else {
+          // Recommandation trouvée - réinitialiser le compteur pour une nouvelle série de tentatives
+          setAttemptCount(1);
+          console.log("Recommandation trouvée, compteur réinitialisé à 1");
+        }
         
         const botResponse: Message = {
           id: (Date.now() + 1).toString(),
           content: `J'ai analysé vos symptômes et je vous recommande le remède suivant à base de **${recommendation.plant}**. Retrouvez ci-dessus la fiche détaillée avec préparation et dosage recommandés.`,
           sender: "bot",
           timestamp: new Date(),
-          recommendation,        };
+          recommendation,};
         
         setMessages((prev) => [...prev, botResponse]);
         
@@ -1319,9 +1336,8 @@ Comment puis-je vous aider ?`
                   content: m.content,
                   sender: m.sender,
                   recommendation: m.recommendation ? JSON.parse(JSON.stringify(m.recommendation)) : undefined
-                }));
-                  // Envoi direct à l'API
-                const response = await fetch(`${API_URL}/consultations`, {
+                }));                  // Envoi direct à l'API
+                const response = await fetch(`${API_URL}/api/consultations`, {
                   method: "POST",
                   headers: {
                     "Content-Type": "application/json",
@@ -1418,10 +1434,9 @@ Comment puis-je vous aider ?`
                 // Sauvegarder chaque message récent
               for (const message of recentMessages) {
                 try {
-                  // Utiliser l'API conversations unifiées au lieu de l'API consultations
-                  console.log(`Navigation - Sauvegarde du message ${message.sender} dans la conversation unifiée ${currentConsultation.id}`);
+                  // Utiliser l'API conversations unifiées au lieu de l'API consultations                  console.log(`Navigation - Sauvegarde du message ${message.sender} dans la conversation unifiée ${currentConsultation.id}`);
                   
-                  const response = await fetch(`${API_URL}/conversations/${currentConsultation.id}/messages`, {
+                  const response = await fetch(`${API_URL}/api/conversations/${currentConsultation.id}/messages`, {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",

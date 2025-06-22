@@ -1,1 +1,1 @@
-{"llm_backend": "huggingface"}
+{"llm_backend": "openai"}

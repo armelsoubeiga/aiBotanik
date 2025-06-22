@@ -78,12 +78,11 @@ export default function AdminPage() {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-
-      if (data.status === "success") {
+      const data = await response.json();      if (data.status === "success") {
+        const backendName = config.llm_backend === "openai" ? "OpenAI" : "HuggingFace";
         toast({
-          title: "Configuration sauvegardée",
-          description: data.message,
+          title: "✅ Configuration sauvegardée",
+          description: `Backend LLM changé vers ${backendName}. ${data.message}`,
         });
         // Mettre à jour l'état local
         fetchConfig();
@@ -203,8 +202,7 @@ export default function AdminPage() {
         
         <TabsContent value="llm">
           <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
+            <Card>              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Settings className="w-5 h-5" />
                   Configuration du backend LLM
@@ -212,6 +210,19 @@ export default function AdminPage() {
                 <CardDescription>
                   Choisissez le backend LLM à utiliser pour les réponses en mode Discussion et Consultation
                 </CardDescription>
+                
+                {/* Affichage du backend actuellement actif */}
+                <Alert className="mt-4">
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Backend actuellement actif</AlertTitle>
+                  <AlertDescription>
+                    <strong>
+                      {config.llm_backend === "openai" ? "OpenAI (GPT-3.5-Turbo)" : "HuggingFace"}
+                    </strong>
+                    {config.llm_backend === "openai" && config.hasOpenAIKey && " - Clé API OpenAI validée"}
+                    {config.llm_backend === "huggingface" && config.hasHFKey && " - Clé API HuggingFace validée"}
+                  </AlertDescription>
+                </Alert>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">

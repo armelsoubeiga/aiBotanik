@@ -2,11 +2,10 @@ import os
 import time
 import pickle
 import requests
-import json
 import traceback
 import logging
 import random
-from typing import Optional, Dict, Any, List
+import pandas as pd
 
 from langchain_core.prompts import PromptTemplate
 from langchain.chains import LLMChain
@@ -14,8 +13,6 @@ from langchain.docstore.document import Document
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from dotenv import load_dotenv
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
-from langchain_huggingface import HuggingFacePipeline
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -74,8 +71,9 @@ if HF_API_KEY:
 else:
     logger.warning("Clé API HuggingFace non trouvée")
 
-VECTORSTORE_PATH = os.path.join("data", "faiss_index.pkl")
-METADATA_PATH = os.path.join("data", "vector_metadata.pkl")
+# Index séparés par type d'embedding pour éviter les conflits
+VECTORSTORE_PATH = os.path.join("data", "faiss_index_hf.pkl") 
+METADATA_PATH = os.path.join("data", "vector_metadata_hf.pkl")
 
 # Lazy loading du modèle d'embeddings (ne charge qu'à la première utilisation)
 _emb = None
@@ -158,90 +156,71 @@ prompt = PromptTemplate(
     template=template
 )
 
-def init_llm_model(use_local=False, model_id="tiiuae/falcon-7b-instruct"):
-    """Initialise le modèle LLM pour les consultations"""
+class HuggingFaceAPIWrapper:
+    """
+    Wrapper pour utiliser l'API HuggingFace Inference comme un LLM LangChain compatible.
+    """
+    def __init__(self, api_key, model_id="google/flan-t5-base", max_length=512, temperature=0.7):
+        self.api_key = api_key
+        self.model_id = model_id
+        self.max_length = max_length
+        self.temperature = temperature
+
+    def __call__(self, prompt, **kwargs):
+        return self.run(prompt)
+
+    def run(self, prompt, **kwargs):
+        response = generate_huggingface_response(
+            prompt=prompt,
+            api_key=self.api_key,
+            model_id=self.model_id,
+            max_length=self.max_length,
+            temperature=self.temperature
+        )
+        return response or "[Erreur: aucune réponse du modèle HuggingFace distant]"
+
+def init_llm_model(*, use_local=False, model_id="google/flan-t5-base"):
+    """
+    Initialise le LLM pour les consultations (API HuggingFace Inference UNIQUEMENT)
+    """
+    if not HF_API_KEY:
+        logger.error("Clé API HuggingFace manquante !")
+        return None
+    logger.info(f"Utilisation exclusive du modèle distant HuggingFace : {model_id}")
+    return HuggingFaceAPIWrapper(
+        api_key=HF_API_KEY,
+        model_id=model_id,
+        max_length=512,
+        temperature=0.7
+    )
+
+
+def get_llm_chain():
+    """Chaîne LLM qui utilise toujours l'API HuggingFace distante"""
+    global llm, chain
+    if chain is not None:
+        return chain
     try:
-        if use_local:
-            import torch
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_id)
-            
-            text_generation = pipeline(
-                task="text2text-generation",
-                model=model,
-                tokenizer=tokenizer,
-                device=device,
-                do_sample=True,
-                temperature=0.7,
-                max_new_tokens=512,
-                top_p=0.95,
-                top_k=50,
-            )
-            
-            return HuggingFacePipeline(pipeline=text_generation)
-        else:
-            if not HF_API_KEY:
+        if llm is None:
+            llm = init_llm_model()
+            if llm is None:
                 return None
-                
-            try:
-                from transformers import pipeline as transformers_pipeline
-                
-                text_generation = transformers_pipeline(
-                    task="text2text-generation",
-                    model=model_id,
-                    token=HF_API_KEY,
-                    device="cpu",
-                    do_sample=True,
-                    temperature=0.7,
-                    max_new_tokens=512,
-                    top_p=0.95,
-                    top_k=50,
-                )
-                
-                return HuggingFacePipeline(pipeline=text_generation)
-                
-            except Exception:
-                try:
-                    from langchain_community.llms import HuggingFaceHub
-                    return HuggingFaceHub(
-                        repo_id=model_id,
-                        huggingfacehub_api_token=HF_API_KEY,
-                        model_kwargs={
-                            "temperature": 0.7, 
-                            "max_length": 512,
-                        },
-                    )
-                except Exception:
-                    return None
-    except Exception:
+        # Adapter LLMChain pour utiliser le wrapper
+        class SimpleLLMChain:
+            def __init__(self, llm, prompt):
+                self.llm = llm
+                self.prompt = prompt
+            def run(self, **kwargs):
+                prompt_text = self.prompt.format(**kwargs)
+                return self.llm.run(prompt_text)
+        chain = SimpleLLMChain(llm=llm, prompt=prompt)
+        return chain
+    except Exception as e:
+        logger.error(f"Erreur get_llm_chain: {e}")
         return None
 
 llm = None
 chain = None
-
-def get_llm_chain():
-    """Récupère ou initialise la chaîne LLM pour les consultations"""
-    global llm, chain
-    
-    if chain is not None:
-        return chain
-        
-    try:
-        if llm is None:
-            use_local = os.getenv("USE_LOCAL_MODEL", "False").lower() in ("true", "1", "t")
-            llm = init_llm_model(use_local=use_local)
-            
-            if llm is None:
-                return None
-        
-        chain = LLMChain(llm=llm, prompt=prompt)
-        return chain
-    except Exception:
-        return None
-
-llm_chat = None
 
 def fetch_image(plant_name: str) -> str:
     url = f"https://api.unsplash.com/search/photos?query={plant_name}&client_id={UNSPLASH_KEY}&per_page=1"
@@ -348,8 +327,7 @@ def load_or_build_vectorstore(df, csv_path):
         return build_and_save_vectorstore(df, csv_path)
 
 # Fonction principale pour obtenir des recommandations
-def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
-    import pandas as pd
+def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv", attempt_count=1):
     
     global vectorstore
     
@@ -388,23 +366,68 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
             "toux": ["respiration", "poumon", "gorge"],
             "mal de tête": ["tête", "migraine", "céphalée"],
             "douleur": ["mal", "souffrance"]
-        }
-        
+        }        
         for keyword, synonyms in symptom_mapping.items():
             if keyword in clean_symptoms or any(syn in clean_symptoms for syn in synonyms):
                 search_term = keyword
                 matches = df[df["maladiesoigneeparrecette"].str.contains(search_term, case=False, na=False, regex=True)]
-                if not matches.empty:
-                    break
+                if not matches.empty:                    break
         
         if matches is None or len(matches) == 0:
-            matches = df[df["maladiesoigneeparrecette"].str.contains(clean_symptoms, case=False, na=False)]    
+            matches = df[df["maladiesoigneeparrecette"].str.contains(clean_symptoms, case=False, na=False)]
+    
     if matches.empty:
         if "palud" in clean_symptoms or "malaria" in clean_symptoms:
             matches = df[df["maladiesoigneeparrecette"].str.contains("malaria|paludisme", case=False, na=False, regex=True)]
     
     if matches.empty:
-        raise ValueError(f"Aucune plante trouvée pour les symptômes: {symptoms}. Veuillez essayer une description plus précise comme 'paludisme', 'diarrhée', etc.")
+        # Gestion intelligente des cas sans correspondance avec système de 2 tentatives basé sur attempt_count
+        if attempt_count == 1:
+            # Première tentative - demander plus de détails gentiment
+            return {
+                "plant": "Demande de précisions",
+                "explanation": """Je n'ai pas pu identifier une pathologie spécifique correspondant à vos symptômes dans notre base de données actuelle.
+
+Pourriez-vous m'aider en me donnant plus de détails sur ce que vous ressentez ? Par exemple :
+• Depuis quand avez-vous ces symptômes ?
+• À quel moment de la journée sont-ils plus intenses ?
+• Y a-t-il d'autres signes qui les accompagnent ?
+• Avez-vous des douleurs particulières ou des zones précises touchées ?
+
+Ces informations supplémentaires m'aideront à mieux vous orienter vers un traitement adapté.""",
+                "dosage": "Informations supplémentaires requises",
+                "preparation": "Informations supplémentaires requises", 
+                "image_url": "",
+                "contre_indications": "Veuillez fournir plus de détails sur vos symptômes",
+                "partie_utilisee": "Informations supplémentaires requises",
+                "composants": "Informations supplémentaires requises",
+                "nom_local": "",
+                "needs_more_details": True  # Indicateur pour le frontend
+            }
+        else:
+            # Deuxième tentative ou plus - orienter vers un professionnel
+            return {
+                "plant": "Consultation recommandée",
+                "explanation": """Malgré les détails supplémentaires que vous avez fournis, notre base de données actuelle ne nous permet pas de vous proposer une recommandation de traitement spécifique pour vos symptômes.
+
+Dans ce cas, je vous recommande vivement de :
+
+**🌿 Consulter un thérapeute en phytothérapie :**
+Vous pouvez trouver des contacts qualifiés sur notre page d'accueil grâce à la fonctionnalité « Contacter un thérapeute ».
+
+**🩺 Consulter un médecin :**
+Pour obtenir un diagnostic médical précis et un traitement approprié.
+
+Votre santé est précieuse, et il est important d'obtenir l'avis d'un professionnel de santé qualifié lorsque nos ressources actuelles ne suffisent pas à vous orienter correctement.""",
+                "dosage": "Consultation professionnelle requise",
+                "preparation": "Consultation professionnelle requise",
+                "image_url": "",
+                "contre_indications": "Consultez un professionnel de santé",
+                "partie_utilisee": "Consultation professionnelle requise", 
+                "composants": "Consultation professionnelle requise",
+                "nom_local": "",
+                "requires_consultation": True  # Indicateur pour le frontend
+            }
     
     plant = matches.iloc[0].to_dict()
     plant_data = plant
@@ -558,11 +581,7 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
 
 def generate_chat_response(prompt: str):
     """
-    Génère une réponse pour le mode discussion en utilisant soit HuggingFacePipeline (local),
-    soit l'API HuggingFace Inference (distant), soit un fallback en cas d'échec.
-    
-    Cette fonction tente d'abord d'utiliser le modèle LLM optimisé, puis fait un fallback
-    sur l'API HTTP directe et enfin sur des réponses prédéfinies si nécessaire.
+    Génère une réponse pour le mode discussion en utilisant le modèle LLM hugging face optimisé.
     """
     global llm_chat
     

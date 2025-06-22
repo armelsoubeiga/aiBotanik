@@ -20,8 +20,8 @@ UNSPLASH_KEY = os.getenv("UNSPLASH_KEY")
 HF_API_KEY = os.getenv("HF_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-VECTORSTORE_PATH = os.path.join("data", "faiss_index.pkl")
-METADATA_PATH = os.path.join("data", "vector_metadata.pkl")
+VECTORSTORE_PATH = os.path.join("data", "faiss_index_openai.pkl")  # Spécifique OpenAI
+METADATA_PATH = os.path.join("data", "vector_metadata_openai.pkl")
 
 emb = OpenAIEmbeddings(model="text-embedding-3-small", openai_api_key=OPENAI_API_KEY)
 
@@ -91,7 +91,7 @@ try:
     )
 
     chain = LLMChain(llm=llm, prompt=prompt)
-
+    
     llm_chat = ChatOpenAI(
         model="gpt-3.5-turbo",
         temperature=0.7,
@@ -105,7 +105,14 @@ try:
         raise ValueError("Erreur d'initialisation des modèles OpenAI")
         
 except Exception as e:
-    pass
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error(f"❌ Erreur lors de l'initialisation des modèles OpenAI: {e}")
+    logger.error(f"❌ Type d'erreur: {type(e).__name__}")
+    logger.error(f"❌ Détails: {str(e)}")
+    # Les variables restent None, ce qui causera les fallbacks
+    llm = None
+    llm_chat = None
 
 def fetch_image(plant_name: str) -> str:
     url = f"https://api.unsplash.com/search/photos?query={plant_name}&client_id={UNSPLASH_KEY}&per_page=1"
@@ -305,7 +312,7 @@ def create_fallback_sections(symptoms, plant_names, pathologies, preparation, do
         "resume": f"Pour traiter le {pathologies}, préparez une décoction de {plant_names} selon les instructions indiquées. Prenez la dose recommandée 2-3 fois par jour pendant 7 jours. Si les symptômes persistent après 3 jours ou s'aggravent, consultez immédiatement un professionnel de santé. Respectez les précautions mentionnées pour un traitement sûr et efficace."
     }
 
-def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
+def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv", attempt_count=1):
     import pandas as pd
     
     global vectorstore
@@ -359,9 +366,54 @@ def get_recommendation(symptoms: str, df, csv_path="data/baseplante.csv"):
     
     if matches.empty:
         if "palud" in clean_symptoms or "malaria" in clean_symptoms:
-            matches = df[df["maladiesoigneeparrecette"].str.contains("malaria|paludisme", case=False, na=False, regex=True)]    
+            matches = df[df["maladiesoigneeparrecette"].str.contains("malaria|paludisme", case=False, na=False, regex=True)]
+    
     if matches.empty:
-        raise ValueError(f"Aucune plante trouvée pour les symptômes: {symptoms}. Veuillez essayer une description plus précise comme 'paludisme', 'diarrhée', etc.")
+        # Gestion intelligente des cas sans correspondance avec système de 2 tentatives basé sur attempt_count
+        if attempt_count == 1:
+            # Première tentative - demander plus de détails gentiment
+            return {
+                "plant": "Demande de précisions",
+                "explanation": """Je n'ai pas pu identifier une pathologie spécifique correspondant à vos symptômes dans notre base de données actuelle.
+
+Pourriez-vous m'aider en me donnant plus de détails sur ce que vous ressentez ? Par exemple :
+• Depuis quand avez-vous ces symptômes ?
+• À quel moment de la journée sont-ils plus intenses ?
+• Y a-t-il d'autres signes qui les accompagnent ?
+• Avez-vous des douleurs particulières ou des zones précises touchées ?
+
+Ces informations supplémentaires m'aideront à mieux vous orienter vers un traitement adapté.""",
+                "dosage": "Informations supplémentaires requises",
+                "prep": "Informations supplémentaires requises", 
+                "image_url": "",
+                "contre_indications": "Veuillez fournir plus de détails sur vos symptômes",
+                "partie_utilisee": "Informations supplémentaires requises",                "composants": "Informations supplémentaires requises",
+                "nom_local": "",
+                "needs_more_details": True  # Indicateur pour le frontend
+            }
+        else:
+            # Deuxième tentative ou plus - orienter vers un professionnel
+            return {
+                "plant": "Consultation recommandée",
+                "explanation": """Malgré les détails supplémentaires que vous avez fournis, notre base de données actuelle ne nous permet pas de vous proposer une recommandation de traitement spécifique pour vos symptômes.
+
+Dans ce cas, je vous recommande vivement de :
+
+**🌿 Consulter un thérapeute en phytothérapie :**
+Vous pouvez trouver des contacts qualifiés sur notre page d'accueil grâce à la fonctionnalité « Contacter un thérapeute ».
+
+**🩺 Consulter un médecin :**
+Pour obtenir un diagnostic médical précis et un traitement approprié.
+
+Votre santé est précieuse, et il est important d'obtenir l'avis d'un professionnel de santé qualifié lorsque nos ressources actuelles ne suffisent pas à vous orienter correctement.""",                "dosage": "Consultation professionnelle requise",
+                "prep": "Consultation professionnelle requise",
+                "image_url": "",
+                "contre_indications": "Consultez un professionnel de santé",
+                "partie_utilisee": "Consultation professionnelle requise", 
+                "composants": "Consultation professionnelle requise",
+                "nom_local": "",
+                "requires_consultation": True  # Indicateur pour le frontend
+            }
     
     plant = matches.iloc[0].to_dict()
     plant_data = plant

@@ -1,6 +1,6 @@
 "use client";
 
-import { API_URL, debugLog } from '@/lib/config';
+import { API_URL } from '@/lib/config';
 
 interface AuthToken {
   access_token: string;
@@ -68,7 +68,7 @@ export class AuthService {
   // Se connecter
   public async login(credentials: UserCredentials): Promise<{success: boolean, errorMessage?: string}> {
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -117,7 +117,7 @@ export class AuthService {
   // S'inscrire
   public async signup(userData: SignupData): Promise<{success: boolean, errorMessage?: string}> {
     try {
-      const response = await fetch(`${API_URL}/auth/signup`, {
+      const response = await fetch(`${API_URL}/api/auth/signup`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -216,7 +216,7 @@ export class AuthService {
     }
 
     try {
-      const response = await fetch(`${API_URL}/auth/validate`, {
+      const response = await fetch(`${API_URL}/api/auth/validate`, {
         headers: {
           "Authorization": `Bearer ${this.token}`,
         },
@@ -242,7 +242,7 @@ export class AuthService {
     }
 
     try {
-      const response = await fetch(`${API_URL}/auth/change-password`, {
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

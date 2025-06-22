@@ -6,7 +6,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "http://localhost:8000/api"
+BASE_URL = "http://localhost:5000/api"
 
 def print_response(resp):
     """Affiche une réponse de manière formatée"""

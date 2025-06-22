@@ -1,7 +1,7 @@
 "use client";
 
 import { authService } from "./auth-service";
-import { API_URL, debugLog } from '@/lib/config';
+import { API_URL } from '@/lib/config';
 
 export interface Message {
   id?: string;
@@ -41,10 +41,9 @@ export class ConsultationService {
     }
 
     try {
-      const token = authService.getToken();
-      console.log("Token utilisé pour l'API:", token);
+      const token = authService.getToken();      console.log("Token utilisé pour l'API:", token);
       
-      const response = await fetch(`${API_URL}/consultations`, {
+      const response = await fetch(`${API_URL}/api/consultations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -74,10 +73,9 @@ export class ConsultationService {
     }
 
     try {
-      const token = authService.getToken();
-      console.log("getConsultations: Récupération des consultations avec token", token?.substring(0, 15) + "...");
+      const token = authService.getToken();      console.log("getConsultations: Récupération des consultations avec token", token?.substring(0, 15) + "...");
       
-      const response = await fetch(`${API_URL}/consultations`, {
+      const response = await fetch(`${API_URL}/api/consultations`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -127,9 +125,8 @@ export class ConsultationService {
         console.error("Pas de token disponible pour récupérer la consultation");
         return null;
       }
-      
-      console.log(`Récupération de la consultation ${id} avec token ${token.substring(0, 10)}...`);
-        const response = await fetch(`${API_URL}/consultations/${id}`, {
+        console.log(`Récupération de la consultation ${id} avec token ${token.substring(0, 10)}...`);
+        const response = await fetch(`${API_URL}/api/consultations/${id}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         },
@@ -301,10 +298,9 @@ export class ConsultationService {
             JSON.stringify(processedMessage.recommendation) 
           : undefined
       };
+        console.log(`Envoi d'un message à la consultation ${consultationId}:`, messageToSend);
       
-      console.log(`Envoi d'un message à la consultation ${consultationId}:`, messageToSend);
-      
-      const response = await fetch(`${API_URL}/consultations/${consultationId}/messages`, {
+      const response = await fetch(`${API_URL}/api/consultations/${consultationId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -329,12 +325,10 @@ export class ConsultationService {
   public async deleteConsultation(consultationId: string): Promise<boolean> {
     if (!authService.isAuthenticated()) {
       return false;
-    }
-
-    try {
+    }    try {
       const token = authService.getToken();
       
-      const response = await fetch(`${API_URL}/consultations/${consultationId}`, {
+      const response = await fetch(`${API_URL}/api/consultations/${consultationId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${token}`
@@ -362,8 +356,7 @@ export class ConsultationService {
 
     try {
       const token = authService.getToken();
-      
-      const response = await fetch(`${API_URL}/consultations/${consultationId}`, {
+        const response = await fetch(`${API_URL}/api/consultations/${consultationId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

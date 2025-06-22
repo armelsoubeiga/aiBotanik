@@ -23,6 +23,9 @@ export interface PlantRecommendation {
   precautions_info?: string;
   composants_info?: string;
   resume_traitement?: string;
+  // Indicateurs pour le système de fallback robuste
+  needs_more_details?: boolean;
+  requires_consultation?: boolean;
 }
 
 interface PlantRecommendationCardProps {
@@ -62,9 +65,8 @@ export function PlantRecommendationCard({ recommendation }: PlantRecommendationC
       console.error("Impossible de parser la recommandation depuis la chaîne:", e);
       return renderErrorCard("Impossible de traiter les détails de cette recommandation.");
     }
-  }
-    // Assurer que tous les champs requis sont présents
-  const requiredFields: Record<keyof PlantRecommendation, string> = {
+  }  // Assurer que tous les champs requis sont présents (excluant les booléens du fallback)
+  const requiredFields: Record<string, string> = {
     plant: "Plante non spécifiée",
     dosage: "Dosage non spécifié",
     prep: "Préparation non spécifiée",
@@ -86,10 +88,9 @@ export function PlantRecommendationCard({ recommendation }: PlantRecommendationC
   };
     // Compléter les champs manquants obligatoires seulement (les champs structurés sont optionnels)
   const obligatoryFields = ["plant", "dosage", "prep", "image_url", "explanation", "contre_indications", "partie_utilisee", "composants", "nom_local"];
-  
-  for (const field of obligatoryFields) {
+    for (const field of obligatoryFields) {
     if (!processedRecommendation[field as keyof PlantRecommendation]) {
-      processedRecommendation[field as keyof PlantRecommendation] = requiredFields[field as keyof PlantRecommendation];
+      (processedRecommendation as any)[field] = requiredFields[field];
       console.warn(`Champ obligatoire '${field}' manquant dans la recommandation, valeur par défaut ajoutée`);
     }
   }

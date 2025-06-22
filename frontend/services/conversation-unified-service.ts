@@ -1,7 +1,7 @@
 "use client";
 
 import { authService } from "./auth-service";
-import { API_URL, debugLog } from '@/lib/config';
+import { API_URL } from '@/lib/config';
 
 export interface UnifiedMessage {
   id?: string;
@@ -68,10 +68,9 @@ class ConversationUnifiedService {
       const lastRecommendation = conversation.messages
         ? [...conversation.messages]
             .reverse()
-            .find(m => m.recommendation)?.recommendation || null
-        : null;
+            .find(m => m.recommendation)?.recommendation || null        : null;
       
-      const response = await fetch(`${API_URL}/conversations`, {
+      const response = await fetch(`${API_URL}/api/conversations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -118,10 +117,9 @@ class ConversationUnifiedService {
     }
 
     try {
-      const token = authService.getToken();
-      console.log("getConversations: Récupération des conversations avec token", token?.substring(0, 15) + "...");
+      const token = authService.getToken();      console.log("getConversations: Récupération des conversations avec token", token?.substring(0, 15) + "...");
       
-      const response = await fetch(`${API_URL}/conversations`, {
+      const response = await fetch(`${API_URL}/api/conversations`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -164,7 +162,7 @@ class ConversationUnifiedService {
       
       console.log(`getConversation: Récupération de la conversation ${id} avec token ${token.substring(0, 10)}...`);
       
-      const response = await fetch(`${API_URL}/conversations/${id}`, {
+      const response = await fetch(`${API_URL}/api/conversations/${id}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         },
@@ -198,8 +196,7 @@ class ConversationUnifiedService {
     try {
       const token = authService.getToken();
       console.log("getConversationHistory: Récupération de l'historique avec token", token?.substring(0, 15) + "...");
-      
-      const response = await fetch(`${API_URL}/conversations`, {
+        const response = await fetch(`${API_URL}/api/conversations`, {
         method: "GET",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -275,7 +272,7 @@ class ConversationUnifiedService {
       }
         console.log(`getConversationWithMessages: Récupération de la conversation ${id}`);
       
-      const response = await fetch(`${API_URL}/conversations/${id}/messages`, {
+      const response = await fetch(`${API_URL}/api/conversations/${id}/messages`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -315,10 +312,9 @@ class ConversationUnifiedService {
     }
 
     try {
-      const token = authService.getToken();
-      console.log(`addMessageToConversation: Ajout d'un message à la conversation ${conversationId}`);
+      const token = authService.getToken();      console.log(`addMessageToConversation: Ajout d'un message à la conversation ${conversationId}`);
       
-      const response = await fetch(`${API_URL}/conversations/${conversationId}/messages`, {
+      const response = await fetch(`${API_URL}/api/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -367,7 +363,7 @@ class ConversationUnifiedService {
       const token = authService.getToken();
       console.log(`deleteConversation: Suppression de la conversation ${conversationId}`);
       
-      const response = await fetch(`${API_URL}/conversations/${conversationId}`, {
+      const response = await fetch(`${API_URL}/api/conversations/${conversationId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${token}`

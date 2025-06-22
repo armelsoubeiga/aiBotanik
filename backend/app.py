@@ -1,4 +1,3 @@
-import codecs
 import datetime
 import importlib.util
 import json
@@ -12,7 +11,7 @@ from typing import Literal, Optional
 import pandas as pd
 import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -80,10 +79,26 @@ def load_config():
             with open(CONFIG_PATH, 'r') as f:
                 return json.load(f)
         else:
-            default_config = {"llm_backend": "huggingface"}
+            # Création de la configuration par défaut basée sur les clés disponibles
+            openai_key = os.getenv("OPENAI_API_KEY")
+            hf_key = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_API_KEY")
+            
+            # Prioriser OpenAI si la clé est valide et strictement vérifiée
+            if openai_key and verify_openai_key(openai_key):
+                logger.info("✅ Configuration par défaut: OpenAI (clé valide détectée)")
+                default_config = {"llm_backend": "openai"}
+            elif hf_key:
+                logger.info("✅ Configuration par défaut: HuggingFace (clé HF détectée)")
+                default_config = {"llm_backend": "huggingface"}
+            else:
+                logger.warning("⚠️ Configuration par défaut: HuggingFace (aucune clé détectée)")
+                default_config = {"llm_backend": "huggingface"}
+                
             save_config(default_config)
             return default_config
     except Exception as e:
+        logger.error(f"❌ Erreur lors du chargement de la configuration: {e}")
+        # Fallback conservateur vers HuggingFace
         return {"llm_backend": "huggingface"}
 
 def save_config(config):
@@ -102,31 +117,83 @@ def save_config(config):
 config = load_config()
 current_llm_backend = config.get("llm_backend", "huggingface")
 
+# Initialisation sécurisée du module LLM avec fallback
+def safe_initialize_llm():
+    """Initialise le module LLM de manière sécurisée avec fallback"""
+    global current_llm_backend, llm_module
+    
+    try:
+        llm_module = get_llm_module()
+        logger.info(f"✅ Module LLM initialisé: {current_llm_backend}")
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ Échec du chargement {current_llm_backend}: {e}")
+        
+        # Fallback vers l'autre backend
+        fallback_backend = "huggingface" if current_llm_backend == "openai" else "openai"
+        logger.info(f"🔄 Tentative de fallback vers {fallback_backend}")
+        
+        try:
+            current_llm_backend = fallback_backend
+            llm_module = get_llm_module()
+            save_config({"llm_backend": fallback_backend})
+            logger.info(f"✅ Fallback réussi vers {fallback_backend}")
+            return True
+        except Exception as fallback_error:
+            logger.error(f"❌ Échec du fallback: {fallback_error}")
+            # Dernier recours : forcer HuggingFace
+            try:
+                current_llm_backend = "huggingface"
+                import langchain_chains
+                llm_module = langchain_chains
+                save_config({"llm_backend": "huggingface"})
+                logger.info("✅ Dernier recours: HuggingFace forcé")
+                return True
+            except Exception as final_error:
+                logger.critical(f"💀 Impossible d'initialiser un module LLM: {final_error}")
+                raise RuntimeError("Aucun module LLM disponible")
+
 def verify_openai_key(api_key):
-    """Vérifie la validité d'une clé API OpenAI"""
+    """Vérifie la validité d'une clé API OpenAI de manière stricte"""
     if not api_key or api_key.strip() == "":
         return False
     
+    # Vérification du format de la clé
     if not api_key.startswith("sk-"):
+        return False
+        
+    # Vérification de la longueur minimale
+    if len(api_key) < 45:  # Les clés OpenAI font généralement 51+ caractères
         return False
         
     try:
         import openai
         client = openai.OpenAI(api_key=api_key, timeout=10.0)
+        # Test simple avec l'endpoint models
         response = client.models.list()
         return True
     except openai.AuthenticationError:
+        logger.error("❌ Clé OpenAI invalide (authentification échouée)")
         return False
     except openai.RateLimitError:
+        # Si on atteint la limite de taux, c'est que la clé est valide
+        logger.info("✅ Clé OpenAI valide (limite de taux atteinte)")
         return True
-    except (openai.APIConnectionError, requests.exceptions.RequestException, Exception) as e:
-        if api_key.startswith("sk-") and len(api_key) > 20:
+    except (openai.APIConnectionError, requests.exceptions.RequestException) as e:
+        # En cas de problème réseau, accepter la clé si elle a le bon format
+        if len(api_key) > 45 and api_key.startswith("sk-"):
+            logger.warning(f"⚠️ Problème réseau, acceptation de la clé sur la base du format: {e}")
             return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la vérification de la clé OpenAI: {e}")
         return False
 
 def get_llm_module():
-    """Charge le module LLM approprié selon la configuration"""
+    """Charge le module LLM approprié selon la configuration - SANS basculement automatique"""
     global current_llm_backend
+    
+    logger.info(f"Chargement du module LLM: {current_llm_backend}")
       
     if current_llm_backend == "openai":
         try:
@@ -134,24 +201,29 @@ def get_llm_module():
                 api_key = os.getenv("OPENAI_API_KEY")
                 if api_key and verify_openai_key(api_key):
                     import langchain_chains_openai
+                    logger.info("✅ Module OpenAI chargé avec succès")
                     return langchain_chains_openai
                 else:
-                    current_llm_backend = "huggingface"
-                    save_config({"llm_backend": "huggingface"})
+                    logger.error("❌ Clé OpenAI invalide ou manquante")
+                    raise ValueError("Clé API OpenAI invalide ou manquante")
             else:
-                current_llm_backend = "huggingface"
-                save_config({"llm_backend": "huggingface"})
+                logger.error("❌ Module langchain_chains_openai introuvable")
+                raise ImportError("Module langchain_chains_openai non disponible")
         except Exception as e:
-            current_llm_backend = "huggingface"
-            save_config({"llm_backend": "huggingface"})
+            logger.error(f"❌ Échec du chargement OpenAI: {e}")
+            raise e
     
+    # Chargement HuggingFace
     try:
         import langchain_chains
+        logger.info("✅ Module HuggingFace chargé avec succès")
         return langchain_chains
-    except ImportError:
+    except ImportError as e:
+        logger.error("❌ Impossible de charger le module HuggingFace")
         raise ImportError("Impossible de charger un module LLM fonctionnel")
 
-llm_module = get_llm_module()
+# Initialisation sécurisée au démarrage
+safe_initialize_llm()
 
 try:
     csv_path = os.path.join(os.path.dirname(__file__), "data", "baseplante.csv")
@@ -192,6 +264,7 @@ class NormalizedResponse(BaseModel):
 
 class RequestBody(BaseModel):
     symptoms: str
+    attempt_count: int = 1  # Défaut à 1 pour la première tentative
 
 class ChatRequestBody(BaseModel):
     message: str
@@ -231,8 +304,15 @@ async def get_current_llm_module():
 @app.post("/recommend", response_model=ResponseBody)
 async def recommend(body: RequestBody):
     try:
+        # Log explicite du module utilisé
+        module_name = llm_module.__name__ if hasattr(llm_module, '__name__') else str(llm_module)
+        logger.info(f"🔍 REQUÊTE /recommend - Backend actuel: {current_llm_backend}")
+        logger.info(f"🔍 REQUÊTE /recommend - Module utilisé: {module_name}")
+        logger.info(f"🔍 REQUÊTE /recommend - Module path: {getattr(llm_module, '__file__', 'N/A')}")
+        logger.info(f"🔍 REQUÊTE /recommend - Tentative n°: {body.attempt_count}")
+        
         csv_path = os.path.abspath("data/baseplante.csv")
-        result = llm_module.get_recommendation(body.symptoms, df, csv_path)
+        result = llm_module.get_recommendation(body.symptoms, df, csv_path, body.attempt_count)
         return result
     except Exception as e:
         logger.error(f"Erreur lors de la génération de recommandation: {str(e)}")
@@ -253,6 +333,11 @@ async def rebuild_index():
 async def chat(body: ChatRequestBody):
     """Endpoint pour les questions générales en mode Discussion"""
     try:
+        # Log explicite du module utilisé pour le chat
+        module_name = llm_module.__name__ if hasattr(llm_module, '__name__') else str(llm_module)
+        logger.info(f"🔍 REQUÊTE /chat - Backend actuel: {current_llm_backend}")
+        logger.info(f"🔍 REQUÊTE /chat - Module utilisé: {module_name}")
+        
         start_time = datetime.datetime.now()
         
         result = llm_module.generate_chat_response(body.message)
@@ -287,62 +372,102 @@ async def chat(body: ChatRequestBody):
 
 @app.put("/admin/config/llm", response_model=ConfigResponseBody)
 async def update_llm_config(body: ConfigUpdateBody):
-    """Configuration du backend LLM"""
+    """Configuration du backend LLM avec validation robuste"""
     global current_llm_backend, llm_module
     
     try:
         if body.llm_backend != current_llm_backend:
-            config = {"llm_backend": body.llm_backend}
-            
-            if body.llm_backend == "openai" and body.api_key:
-                try:
-                    if not verify_openai_key(body.api_key):
-                        return ConfigResponseBody(
-                            llm_backend=current_llm_backend,
-                            status="error",
-                            message="La clé API OpenAI fournie est invalide"
-                        )
-                    
-                    env_path = os.path.join(os.path.dirname(__file__), ".env")
-                    env_content = ""
-                    
-                    if os.path.exists(env_path):
-                        with open(env_path, "r") as env_file:
-                            env_content = env_file.read()
-                    
-                    if "OPENAI_API_KEY" in env_content:
-                        env_lines = env_content.split("\n")
-                        for i, line in enumerate(env_lines):
-                            if line.startswith("OPENAI_API_KEY"):
-                                env_lines[i] = f"OPENAI_API_KEY = '{body.api_key}'"
-                                break
-                        env_content = "\n".join(env_lines)
-                    else:
-                        env_content += f"\nOPENAI_API_KEY = '{body.api_key}'"
-                    
-                    with open(env_path, "w") as env_file:
-                        env_file.write(env_content)
-                    
-                    load_dotenv(override=True)
-                except Exception as e:
+            # Validation préalable du nouveau backend
+            if body.llm_backend == "openai":
+                api_key = body.api_key or os.getenv("OPENAI_API_KEY")
+                if not api_key:
                     return ConfigResponseBody(
                         llm_backend=current_llm_backend,
                         status="error",
-                        message=f"Erreur lors de la mise à jour de la clé API: {str(e)}"
-                    )            
-            if save_config(config):
-                current_llm_backend = body.llm_backend
-                llm_module = get_llm_module()
-                return ConfigResponseBody(
-                    llm_backend=current_llm_backend,
-                    status="success",
-                    message=f"Backend LLM changé pour {current_llm_backend}"
-                )
-            else:
+                        message="Clé API OpenAI requise pour basculer vers OpenAI"
+                    )
+                
+                if not verify_openai_key(api_key):
+                    return ConfigResponseBody(
+                        llm_backend=current_llm_backend,
+                        status="error",
+                        message="La clé API OpenAI fournie est invalide"
+                    )
+                  # Sauvegarder la clé API si fournie
+                if body.api_key:
+                    try:
+                        env_path = os.path.join(os.path.dirname(__file__), ".env")
+                        env_content = ""
+                        
+                        if os.path.exists(env_path):
+                            with open(env_path, "r") as env_file:
+                                env_content = env_file.read()
+                        
+                        if "OPENAI_API_KEY" in env_content:
+                            env_lines = env_content.split("\n")
+                            for i, line in enumerate(env_lines):
+                                if line.startswith("OPENAI_API_KEY"):
+                                    env_lines[i] = f"OPENAI_API_KEY='{body.api_key}'"
+                                    break
+                            env_content = "\n".join(env_lines)
+                        else:
+                            env_content += f"\nOPENAI_API_KEY='{body.api_key}'"
+                        
+                        with open(env_path, "w") as env_file:
+                            env_file.write(env_content)
+                        
+                        # Recharger les variables d'environnement et mettre à jour la variable locale
+                        load_dotenv(override=True)
+                        os.environ["OPENAI_API_KEY"] = body.api_key
+                        logger.info("✅ Clé OpenAI sauvegardée dans .env")
+                    except Exception as e:
+                        logger.error(f"❌ Erreur sauvegarde clé: {e}")
+                        return ConfigResponseBody(
+                            llm_backend=current_llm_backend,
+                            status="error",
+                            message=f"Erreur lors de la mise à jour de la clé API: {str(e)}"
+                        )
+            
+            # Sauvegarde de la configuration
+            config = {"llm_backend": body.llm_backend}
+            if not save_config(config):
                 return ConfigResponseBody(
                     llm_backend=current_llm_backend,
                     status="error",
                     message="Erreur lors de la sauvegarde de la configuration"
+                )
+            
+            # Test du nouveau module AVANT de l'appliquer
+            old_backend = current_llm_backend
+            old_module = llm_module
+            
+            try:
+                current_llm_backend = body.llm_backend
+                new_module = get_llm_module()
+                
+                # Test rapide du nouveau module
+                if hasattr(new_module, 'get_recommendation'):
+                    llm_module = new_module
+                    logger.info(f"✅ Basculement réussi vers {current_llm_backend}")
+                    return ConfigResponseBody(
+                        llm_backend=current_llm_backend,
+                        status="success",
+                        message=f"Backend LLM changé vers {current_llm_backend}"
+                    )
+                else:
+                    raise AttributeError("Module invalide")
+                    
+            except Exception as e:
+                # Rollback en cas d'échec
+                logger.error(f"❌ Échec du basculement: {e}")
+                current_llm_backend = old_backend
+                llm_module = old_module
+                save_config({"llm_backend": old_backend})
+                
+                return ConfigResponseBody(
+                    llm_backend=current_llm_backend,
+                    status="error",
+                    message=f"Échec du basculement vers {body.llm_backend}: {str(e)}"
                 )
         else:
             return ConfigResponseBody(
@@ -350,8 +475,9 @@ async def update_llm_config(body: ConfigUpdateBody):
                 status="success",
                 message=f"Backend LLM déjà configuré sur {current_llm_backend}"
             )
+            
     except Exception as e:
-        logger.error(f"Erreur lors de la mise à jour de la configuration LLM: {str(e)}")
+        logger.error(f"❌ Erreur lors de la mise à jour de la configuration LLM: {str(e)}")
         return ConfigResponseBody(
             llm_backend=current_llm_backend,
             status="error",
@@ -385,6 +511,7 @@ async def health_check():
     }
 
 @app.get("/")
+@app.head("/")  # Pour les health checks de Render
 async def root():
     """Page d'accueil de l'API"""
     return {
@@ -398,13 +525,7 @@ async def root():
 app.include_router(routes.router, prefix="/api")
 app.include_router(conversation_unified_routes.router)
 
-if not os.getenv("SECRET_KEY"):
-    os.environ["SECRET_KEY"] = secrets.token_urlsafe(32)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
+# Gestionnaires d'exceptions (doivent être définis avant le main)
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     logger.error(f"Erreur de validation: {exc}")
@@ -434,7 +555,7 @@ async def json_decode_exception_handler(request, exc):
         content={
             "detail": "Erreur de décodage JSON",
             "message": str(exc),
-            "suggestion": "Vérifiez que votre requête contient un JSON valide et bien formatté"
+            "suggestion": "Vérifiez que votre requête contient un JSON valide et bien formaté"
         }
     )
 
@@ -459,3 +580,11 @@ async def generic_exception_handler(request, exc):
             "message": str(exc) if app.debug else "Une erreur s'est produite lors du traitement de votre requête"
         }
     )
+
+if not os.getenv("SECRET_KEY"):
+    os.environ["SECRET_KEY"] = secrets.token_urlsafe(32)
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 5000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
