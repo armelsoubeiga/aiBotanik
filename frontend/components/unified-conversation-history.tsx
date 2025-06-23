@@ -175,7 +175,8 @@ export function UnifiedConversationHistory({ onConversationSelect, onBack, isAut
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-lg font-semibold text-emerald-800 line-clamp-2">
-                        {conversation.title}
+                        {/* Afficher la date à la place du titre */}
+                        {formatDate(conversation.created_at)}
                       </CardTitle>
                       <Badge variant="secondary" className={`${typeDisplay.color} flex items-center gap-1`}>
                         {typeDisplay.icon}
@@ -185,10 +186,7 @@ export function UnifiedConversationHistory({ onConversationSelect, onBack, isAut
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="space-y-3">
-                      <p className="text-sm text-gray-600 line-clamp-2">
-                        {conversation.summary}
-                      </p>
-                      
+                      {/* Suppression du résumé/texte ici */}
                       <div className="flex items-center justify-between text-xs text-gray-500">
                         <div className="flex items-center gap-4">
                           <span className="flex items-center gap-1">

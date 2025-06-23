@@ -63,3 +63,11 @@ coverage/
 *.log
 .vercel/
 .netlify/
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+

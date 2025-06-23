@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -1249,6 +1249,15 @@ Comment puis-je vous aider ?`
     }
   };
 
+  // Référence pour le scroll automatique
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
+    }
+  }, [messages.length]);
+
   // Effet pour mettre à jour la conversation dans le composant parent
   useEffect(() => {
     // Éviter les mises à jour lorsqu'on charge une conversation existante
@@ -1505,12 +1514,12 @@ Comment puis-je vous aider ?`
       <Card className="border-emerald-100">
         <CardContent className="p-6">
           {/* Zone de messages */}
-          <div className="min-h-[300px] max-h-[500px] md:min-h-[400px] md:max-h-[600px] overflow-y-auto mb-6 space-y-4">
+          <div ref={messagesEndRef} className="min-h-[300px] max-h-[500px] md:min-h-[400px] md:max-h-[600px] overflow-y-auto mb-6 space-y-4 relative">
             {isLoading && (
               <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-20">
                 <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-xl shadow-md">
                   <Loader2 className="h-8 w-8 text-emerald-600 animate-spin" />
-                  <p className="text-emerald-800">Recherche de remèdes naturels...</p>
+                  <p className="text-emerald-800">Génération de la réponse...</p>
                 </div>
               </div>
             )}
@@ -1519,7 +1528,9 @@ Comment puis-je vous aider ?`
               <div className="space-y-6">
                 <div className="text-center">
                   <div className="w-20 h-20 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Bot className="h-10 w-10 text-white" />
+                    <a href="/" aria-label="Accueil aiBotanik">
+    <Bot className="h-10 w-10 text-white cursor-pointer transition-transform hover:scale-110" />
+  </a>
                   </div>
                   <h3 className="text-xl font-semibold text-emerald-800 mb-2">Bienvenue sur aiBotanik</h3>
                 </div>
@@ -1615,10 +1626,11 @@ Comment puis-je vous aider ?`
               {/* Utiliser un formulaire pour éviter les comportements de navigation par défaut */}
               <form onSubmit={handleSendMessage} className="flex gap-2 items-end">
                 <div className="flex-1 relative">
-                  <div className="relative">                    {/* Boutons de mode intégrés dans le textarea */}
+                  <div className="relative">
+                    {/* Boutons de mode intégrés dans le textarea */}
                     <div className="absolute left-2 top-2 flex items-center gap-1 z-10">
                       <button
-                        type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
+                        type="button"
                         onClick={() => setChatMode("discussion")}
                         className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium transition-all ${
                           chatMode === "discussion"
@@ -1630,7 +1642,7 @@ Comment puis-je vous aider ?`
                         Discussion
                       </button>
                       <button
-                        type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
+                        type="button"
                         onClick={() => setChatMode("consultation")}
                         className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium transition-all ${
                           chatMode === "consultation"
@@ -1641,7 +1653,8 @@ Comment puis-je vous aider ?`
                         <Stethoscope className="h-3 w-3" />
                         Consultation
                       </button>
-                    </div><Textarea
+                    </div>
+                    <Textarea
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyPress={handleKeyPress}
@@ -1651,8 +1664,9 @@ Comment puis-je vous aider ?`
                           : "Décrivez vos symptômes pour une consultation..."
                       }
                       className="w-full min-h-[75px] pl-4 pr-9 pt-9 pb-3 resize-none border-emerald-200 focus:border-emerald-400 rounded-2xl"
-                    />                    <Button
-                      type="button" /* Ajouter type="button" pour éviter la soumission du formulaire */
+                    />
+                    <Button
+                      type="button"
                       size="sm"
                       variant="ghost"
                       className={`absolute right-2 bottom-1 ${isListening ? "text-red-500" : "text-emerald-600"}`}
@@ -1662,23 +1676,23 @@ Comment puis-je vous aider ?`
                     </Button>
                   </div>
                 </div>
-                <Button
-                  type="submit" /* Spécifier qu'il s'agit d'un bouton de soumission */
-                  disabled={!inputValue.trim() || isLoading}
-                  className="bg-emerald-600 hover:bg-emerald-700 px-4 rounded-2xl h-[40px]"
-                >
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
-                
-                {/* Bouton pour nouvelle conversation - toujours visible à côté du bouton d'envoi */}
-                <Button
-                  type="button"
-                  onClick={handleNewConversation}
-                  title="Nouvelle conversation"
-                  className="bg-amber-500 hover:bg-amber-600 px-3 rounded-2xl h-[40px]"
-                >
-                  <PlusCircle className="h-4 w-4" />
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="submit"
+                    disabled={!inputValue.trim() || isLoading}
+                    className="bg-emerald-600 hover:bg-emerald-700 w-[48px] h-[40px] p-0 flex items-center justify-center rounded-2xl"
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleNewConversation}
+                    title="Nouvelle conversation"
+                    className="bg-amber-500 hover:bg-amber-600 w-[48px] h-[40px] p-0 flex items-center justify-center rounded-2xl"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                  </Button>
+                </div>
               </form>
             </div>
           </div>

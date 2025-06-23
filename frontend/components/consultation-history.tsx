@@ -115,7 +115,8 @@ export function ConsultationHistory({ consultations, onConsultationSelect, onBac
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-emerald-800 text-lg">
-                      {consultation.title || "Consultation sans titre"}
+                      {/* Afficher la date à la place du titre */}
+                      {formatDate(consultation.date || consultation.created_at || new Date().toISOString())}
                     </CardTitle>
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <MessageCircle className="h-4 w-4" />

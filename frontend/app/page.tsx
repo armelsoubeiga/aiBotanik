@@ -439,6 +439,11 @@ export default function Home() {
         isAuthenticated={isAuthenticated} 
         onAuthChange={handleAuthChange}
         onSettingsChanged={handleSettingsChanged}
+        onLogoClick={() => {
+          setCurrentView("home");
+          setSelectedConsultation(null);
+          setCurrentConversation(null);
+        }}
       />
 
       <main className="container mx-auto px-4 py-8 max-w-6xl">{renderContent()}</main>
